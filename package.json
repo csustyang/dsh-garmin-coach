@@ -25,7 +25,9 @@
     "typecheck": "tsc --noEmit",
     "smoke": "node --import tsx scripts/login-smoke.mjs",
     "verify:all": "npm run typecheck && npm run smoke",
-    "stats:test": "npx tsx scripts/stats-test.ts"
+    "stats:test": "npx tsx scripts/stats-test.ts",
+    "release": "npx tsx scripts/release.ts",
+    "release:dry": "npx tsx scripts/release.ts --dry-run 2>/dev/null || npx tsx scripts/release.ts"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*"
