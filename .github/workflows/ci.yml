@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Type check + Build
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify build artifacts
+        run: |
+          if [ ! -f lib/index.js ]; then
+            echo "❌ lib/index.js not found"; exit 1
+          fi
+          if [ ! -f lib/client.js ]; then
+            echo "❌ lib/client.js not found"; exit 1
+          fi
+          echo "✓ Build artifacts present"
+
+      - name: Smoke check (require entry)
+        run: |
+          node -e "const m = require('./lib/index.js'); console.log('✓ lib/index.js loadable, exports:', Object.keys(m).join(', '))"
+
+      - name: Check for sensitive content
+        run: |
+          if grep -rE "851388850@qq\.com|wifiNorth1011|ghp_[a-zA-Z0-9]{20,}" lib/ src/ scripts/ 2>/dev/null; then
+            echo "❌ Sensitive content detected in tracked files!"; exit 1
+          fi
+          echo "✓ No sensitive content"
+
+  lint:
+    name: Sanity checks
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check no console.log in lib/
+        run: |
+          # lib/ 不应该有 console.log（仅 console.warn/info/error 用于正常用户提示）
+          if grep -rE "console\.log\(" lib/ 2>/dev/null; then
+            echo "❌ console.log found in lib/ (use console.warn/info/error if needed)"; exit 1
+          fi
+          echo "✓ No console.log in lib/"
+
+      - name: Check gitignore covers sensitive files
+        run: |
+          for f in data/garmin.json data/training-plan.json node_modules/; do
+            git check-ignore -q "$f" || { echo "❌ $f not in .gitignore"; exit 1; }
+          done
+          echo "✓ Sensitive paths properly ignored"
+
+      - name: Check package.json has required fields
+        run: |
+          node -e "
+            const p = require('./package.json');
+            const required = ['name', 'version', 'description', 'main', 'files'];
+            for (const k of required) {
+              if (!p[k]) { console.error('Missing package.json field:', k); process.exit(1); }
+            }
+            console.log('✓ package.json has required fields');
+          "
