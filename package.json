@@ -1,0 +1,77 @@
+{
+  "name": "dsh-garmin-coach",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Garmin Connect 运动健康 AI 教练插件 for DeepSeek Harness — 同步活动/健康/HRV 数据 + AI 训练建议 + 训练计划 + 训练日记",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node --import tsx scripts/login-smoke.mjs",
+    "verify:all": "npm run typecheck && npm run smoke",
+    "stats:test": "npx tsx scripts/stats-test.ts"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-settings": "^0.0.1-rc.1",
+    "@deepseek-ai/dsh-tools": "^0.0.1-rc.1",
+    "schemastery": "^3.18.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.4.5"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
+    }
+  },
+  "author": "dsh-garmin-coach contributors",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "garmin",
+    "garmin-connect",
+    "fitness",
+    "running",
+    "training-plan",
+    "ai-coach",
+    "deepseek"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/csustyang/dsh-garmin-coach.git"
+  },
+  "bugs": {
+    "url": "https://github.com/csustyang/dsh-garmin-coach/issues"
+  },
+  "homepage": "https://github.com/csustyang/dsh-garmin-coach#readme"
+}

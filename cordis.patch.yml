@@ -1,0 +1,7 @@
+# dsh-garmin-coach 插件注册。
+#
+# 通过 npm 包名加载（不是绝对路径），DSH 才能找到 client.js 子路径入口。
+- insert:
+    - id: garmin-coach
+      name: dsh-garmin-coach
+      config: {}

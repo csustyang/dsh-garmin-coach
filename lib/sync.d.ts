@@ -1,0 +1,48 @@
+/**
+ * Garmin 数据同步服务。
+ *
+ * 职责：
+ *   - 从 Garmin API 拉活动 + 每日健康
+ *   - 按 activityId 去重落库（重复同步不产生重复数据）
+ *   - 按运动类型筛选
+ *   - 记录同步游标（lastSyncAt）
+ */
+import type { GarminQueries } from './api/queries.js';
+import type { ActivityRecord, DailyRecord, GarminStoreFile } from './storage.js';
+/** 支持的常见运动类型（Garmin typeKey）*/
+export declare const SUPPORTED_SPORTS: readonly ["running", "cycling", "swimming", "hiking", "walking", "trail_running", "mountain_biking", "strength_training", "other"];
+export type SportKey = (typeof SUPPORTED_SPORTS)[number];
+export interface SyncOptions {
+    days?: number;
+    sportFilter?: string[];
+    store: GarminStoreFile;
+    queries: GarminQueries;
+}
+export interface SyncResult {
+    synced: boolean;
+    activitiesAdded: number;
+    activitiesTotal: number;
+    dailiesAdded: number;
+    sportsSeen: string[];
+    error?: string;
+}
+/**
+ * 把 Garmin 活动原始载荷转成 ActivityRecord。
+ * 依据 ai-skill-garmin 返回的字段结构做映射。
+ */
+export declare function toActivityRecord(raw: unknown): ActivityRecord | null;
+/**
+ * 把 Garmin 每日健康原始载荷转成 DailyRecord。
+ */
+export declare function toDailyRecord(date: string, raw: unknown): DailyRecord;
+/**
+ * 执行一次同步。
+ *
+ * 流程：
+ *  1. 拉最近 N 天活动列表
+ *  2. 过滤运动类型
+ *  3. 转 ActivityRecord → 去重落库
+ *  4. 拉每日健康 → 落库
+ *  5. 更新 lastSyncAt
+ */
+export declare function syncGarmin(opts: SyncOptions): Promise<SyncResult>;

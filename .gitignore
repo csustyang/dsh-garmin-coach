@@ -1,0 +1,47 @@
+# 依赖
+node_modules/
+.pnpm-store/
+
+# 测试/临时
+.garmin-test/
+.logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 环境/配置
+.env
+.env.local
+.env.*.local
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 用户数据（绝对不要提交）
+# 用户数据存 ~/data/（DSH Home），开发时存 ./data/
+# 即便如此，仓库里也不放任何真实数据
+data/*.json
+data/training-plan-history/
+!data/.gitkeep
+
+# 构建缓存
+*.tsbuildinfo
+
+# 注意：lib/*.js 必须提交（DSH 直接 require 这些文件）
+# 如果想用 build-on-install 模式，把下面的开关打开：
+# lib/**/*.js
+# lib/**/*.js.map
+# lib/**/*.d.ts.map
+# 但保留入口：
+# !lib/index.js
+# !lib/client.js
+# !lib/index.d.ts
