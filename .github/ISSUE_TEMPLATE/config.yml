@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 README 安装指南
+    url: https://github.com/csustyang/dsh-garmin-coach/blob/main/README.md
+    about: 阅读文档了解安装和使用
+  - name: 📋 RELEASE 发布流程
+    url: https://github.com/csustyang/dsh-garmin-coach/blob/main/RELEASE.md
+    about: 了解如何贡献代码和发布版本
+
+# 配置选项：用户点 "New Issue" 时看到
+# - bug：bug 报告
+# - feature：功能建议
+# - question：提问
+# 不显示 "blank issue"（空白议题）—— 鼓励用模板
