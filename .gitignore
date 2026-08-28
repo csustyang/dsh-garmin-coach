@@ -21,6 +21,8 @@ yarn-error.log*
 *.swp
 *.swo
 *.iml
+# Claude Code 本地配置（settings.local.json 等）
+.claude/
 
 # OS
 .DS_Store
@@ -35,6 +37,9 @@ data/training-plan-history/
 
 # 构建缓存
 *.tsbuildinfo
+
+# 测试编译产物（跟 lib/ 一样是 tsc 产物，但跑 npm run test:build 时会重新生成）
+lib-tests/
 
 # 注意：lib/*.js 必须提交（DSH 直接 require 这些文件）
 # 如果想用 build-on-install 模式，把下面的开关打开：

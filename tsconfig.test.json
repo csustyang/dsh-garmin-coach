@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "lib-tests",
+    "declaration": false,
+    "noEmit": false,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext"
+  },
+  "include": [
+    "src/**/*.ts",
+    "tests/**/*.ts",
+    "scripts/run-tests.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "lib",
+    "src/client.ts"
+  ]
+}

@@ -26,7 +26,12 @@
     "verify:all": "npm run typecheck && npm run smoke",
     "stats:test": "npx tsx scripts/stats-test.ts",
     "release": "npx tsx scripts/release.ts",
-    "release:dry": "npx tsx scripts/release.ts --dry-run 2>/dev/null || npx tsx scripts/release.ts"
+    "release:dry": "npx tsx scripts/release.ts --dry-run 2>/dev/null || npx tsx scripts/release.ts",
+    "test:build": "tsc -p tsconfig.test.json",
+    "test": "npm run test:build && node lib-tests/scripts/run-tests.js",
+    "test:contracts": "npm run test:build && node lib-tests/scripts/run-tests.js contracts",
+    "test:unit": "npm run test:build && node lib-tests/scripts/run-tests.js unit",
+    "clean": "rm -rf lib-tests"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*"
