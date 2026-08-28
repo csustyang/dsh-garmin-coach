@@ -95,10 +95,14 @@ interface PluginContext {
   }
   commands?: {
     register: (c: {
-      id: string
-      title: string
+      name: string
       description?: string
-      invoke: (i: string) => Promise<unknown>
+      input?: {
+        hint: string
+        images?: boolean
+      }
+      recordInput?: boolean
+      handler: (i: string, signal?: AbortSignal) => Promise<unknown>
     }) => unknown
   }
   settings?: {
@@ -240,11 +244,14 @@ function tryRegisterCommands(ctx: PluginContext, queries: GarminQueries): void {
   }
   safeSync('apply.commands', undefined, () => {
     ctx.commands!.register({
-      id: 'garmin-dashboard',
-      title: 'Garmin Dashboard',
+      name: 'garmin-dashboard',
       description: '显示今日 Garmin 健康看板摘要（步数、睡眠、HRV 等）。',
-      invoke: async (input: string) => {
-        // 命令 invoke 内部：catch 一切异常，返回降级响应
+      input: {
+        hint: '可选：自定义看板标题，如"本周状态"',
+        images: false,
+      },
+      handler: async (input: string, _signal?: AbortSignal) => {
+        // 命令 handler 内部：catch 一切异常，返回降级响应
         try {
           const daily = await queries.daily()
           return {
@@ -254,7 +261,7 @@ function tryRegisterCommands(ctx: PluginContext, queries: GarminQueries): void {
             message: input || 'Garmin 今日状态',
           }
         } catch (e) {
-          logger.error('commands.garmin-dashboard', 'invoke failed', e)
+          logger.error('commands.garmin-dashboard', 'handler failed', e)
           return {
             ok: false,
             error: '未连接或 Garmin 暂时不可用',

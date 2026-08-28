@@ -51,6 +51,10 @@ export interface GarminQueries {
 export function makeQueries(client: GarminClient): GarminQueries {
   return {
     async whoami() {
+      // 未连接账号时直接返回友好字符串，避免 withBoundary 兜底对象违反 string schema
+      if (!(await client.hasToken())) {
+        return '未连接 Garmin账号，请到 设置 → Garmin Coach 连接账号'
+      }
       const api = await client.getApi()
       return api.displayName
     },
