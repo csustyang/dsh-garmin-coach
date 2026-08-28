@@ -1,0 +1,18 @@
+lib/storage.js
+  h_ef278d66b3afb5 148,181,186,195,222,261,294
+src/storage.ts
+  h_ef278d66b3afb5 222,255,261,271,297,337,372
+tests/unit/storage-paths.test.ts
+  h_ef278d66b3afb5 1-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5aaad1893dbda118c4a297215e4ea7352b1071ee",
+  "prompts": {},
+  "humans": {
+    "h_ef278d66b3afb5": {
+      "author": "thomas <yt851388850@qq.com>"
+    }
+  }
+}
