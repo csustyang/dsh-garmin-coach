@@ -1,0 +1,27 @@
+lib/index.js
+  s_88f3a2ca982f26::t_397246bbbff209 193,204,208
+src/tools/helpers.ts
+  s_88f3a2ca982f26::t_011816906930d0 39-42
+package.json
+  s_88f3a2ca982f26::t_0178ba2a9fdf35 3
+lib/tools/helpers.js
+  s_88f3a2ca982f26::t_397246bbbff209 28-31
+src/index.ts
+  s_88f3a2ca982f26::t_a269ee1f281a9e 25,286-287,298,301
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "58297a39ab9d1f42bd595c07023499b238b30b3c",
+  "prompts": {},
+  "sessions": {
+    "s_88f3a2ca982f26": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9af4a2e4-0056-4f6f-8913-a5e444bd36b1",
+        "model": "deepseek-v4-flash-ga-260731"
+      },
+      "human_author": "thomas <yt851388850@qq.com>"
+    }
+  }
+}
