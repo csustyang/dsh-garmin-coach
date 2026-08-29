@@ -1,0 +1,14 @@
+tests/unit/storage-paths.test.ts
+  h_ef278d66b3afb5 69-71,73-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "409bf44b281257ea139652867f9ee339fd3edc2c",
+  "prompts": {},
+  "humans": {
+    "h_ef278d66b3afb5": {
+      "author": "thomas <yt851388850@qq.com>"
+    }
+  }
+}
