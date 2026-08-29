@@ -15,6 +15,7 @@ import { logger } from './logger.js'
 export interface GarminSettingsValue {
   email?: string
   password?: string
+  isCn?: boolean
   status?: string
   displayName?: string
   lastSyncAt?: string
@@ -64,6 +65,8 @@ interface SettingsRouteDeps {
   isWritable: () => boolean
   /** 保存整个 value */
   save: (value: GarminSettingsValue, expectedRevision?: number) => Promise<void>
+  /** 清掉 Garmin token（账号变更时调）*/
+  clearGarminTokens: () => Promise<void>
   /** 连接 Garmin（登录）*/
   connect: (email: string, password?: string, mfaCode?: string) => Promise<{
     ok: boolean
@@ -124,9 +127,24 @@ export function makeGarminSettingsHandler(deps: SettingsRouteDeps) {
           sendJson(res, 400, { ok: false, error: { message: 'settings 只读' } })
           return
         }
-        await deps.save(body.value ?? {}, body.expectedRevision)
+        // 检测账号变化：email 或 isCn 变了 → 清掉旧 token（强制重新连接）
+        const oldValue = deps.getValue()
+        const newValue = body.value ?? {}
+        const accountChanged =
+          (oldValue && newValue.email && oldValue.email !== newValue.email) ||
+          (oldValue && oldValue.isCn !== newValue.isCn)
+        await deps.save(newValue, body.expectedRevision)
+        if (accountChanged) {
+          try {
+            await deps.clearGarminTokens()
+            logger.info('settings-web', `检测到账号变更（email 或 isCn），已清掉旧 token`)
+          } catch (e) {
+            logger.error('settings-web', '清 token 失败', e)
+          }
+        }
         sendJson(res, 200, {
           ok: true,
+          accountChanged: !!accountChanged,
           settings: {
             value: deps.getValue(),
             revision: deps.getRevision(),

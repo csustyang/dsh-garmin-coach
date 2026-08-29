@@ -518,6 +518,16 @@ export function apply(rawCtx: Context): void {
           if (!garminStore) return { ok: false, message: '数据存储未就绪' }
           return garminStore.toggleTask(taskId)
         },
+        // 清掉 Garmin token（账号变更时调）
+        clearGarminTokens: async () => {
+          try {
+            await store.clear()
+            logger.info('plugin', 'Garmin token 已清空（账号变更）')
+          } catch (e) {
+            logger.error('plugin', '清 Garmin token 失败', e)
+            throw e
+          }
+        },
       })
       installGarminSettingsRoute(rawCtx, handler)
     })

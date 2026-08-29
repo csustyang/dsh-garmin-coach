@@ -12,6 +12,7 @@ import type { Context } from '@deepseek-ai/cordis';
 export interface GarminSettingsValue {
     email?: string;
     password?: string;
+    isCn?: boolean;
     status?: string;
     displayName?: string;
     lastSyncAt?: string;
@@ -27,6 +28,8 @@ interface SettingsRouteDeps {
     isWritable: () => boolean;
     /** 保存整个 value */
     save: (value: GarminSettingsValue, expectedRevision?: number) => Promise<void>;
+    /** 清掉 Garmin token（账号变更时调）*/
+    clearGarminTokens: () => Promise<void>;
     /** 连接 Garmin（登录）*/
     connect: (email: string, password?: string, mfaCode?: string) => Promise<{
         ok: boolean;

@@ -24,10 +24,63 @@
 - **DSH (DeepSeek Harness)** 已安装并运行
 - **Garmin 账号**（支持 CN/国际）
 - Node.js 18+
+- pnpm（推荐）或 npm
 
-### 注册插件
+### 💡 为什么需要手动加 bundles？
 
-在 `~/.dsh/profiles/web/cordis.patch.yml` 添加：
+DSH 启动时**只显式加载** `dsh.profile.bundles` 列表里的包，**不**自动扫 `node_modules/` 加载所有 dsh-* 包（这是设计：稳定性、隔离性、性能）。所以 `pnpm add dsh-garmin-coach` 装包后，**必须**手动加到 bundles——这是 DSH 的工作方式，不是 bug。
+
+> DSH 官方推荐用 `dshmarket`（应用市场）装包——它会**自动**加 bundles。`dsh-garmin-coach` 目前还在审核中，临时手动加即可。
+
+### 一键安装（推荐）
+
+```bash
+cd ~/.dsh/profiles/web
+pnpm add dsh-garmin-coach
+```
+
+装完后**还需要把 dsh-garmin-coach 加到 bundles**（DSH 启动时只显式加载 bundles 里的包）：
+
+**方法 1：手动改 `package.json`**
+
+编辑 `~/.dsh/profiles/web/package.json`，在 `dsh.profile.bundles` 列表末尾加：
+
+```json
+"dsh": {
+  "profile": {
+    "bundles": [
+      ...其他包,
+      "dsh-garmin-coach"   ← 加这行
+    ]
+  }
+}
+```
+
+**方法 2：命令行追加**
+
+```bash
+cd ~/.dsh/profiles/web
+node -e "
+const fs = require('fs');
+const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+if (!p.dsh.profile.bundles.includes('dsh-garmin-coach')) {
+  p.dsh.profile.bundles.push('dsh-garmin-coach');
+  fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
+}
+"
+```
+
+加完后**重启 DSH**（您自己执行）：
+
+```bash
+ddsh restart
+```
+
+打开 DSH → 设置 → 应该看到 **Garmin Coach** 卡片。
+
+### 手动注册（旧方式，不推荐）
+
+在 `~/.dsh/profiles/web/cordis.patch.yml` 手动添加（如果不想用 bundles）：
 
 ```yaml
 - insert:

@@ -92,10 +92,10 @@ test('tools.register: 工具名以 garmin_ 开头（命名约定）', () => {
   }
 })
 
-test('tools.register: 数量 ≥ 25（当前 9 基础 + 16 统计）', () => {
+test('tools.register: 数量 ≥ 11（精简后 6 基础 + 5 统计）', () => {
   assert.ok(
-    captured.tools.length >= 25,
-    `工具数 ${captured.tools.length} < 25（README 约定）。改了 src/tools/*.ts 后请同步 README.md#AI-工具列表`,
+    captured.tools.length >= 11,
+    `工具数 ${captured.tools.length} < 11（README 约定）。改了 src/tools/*.ts 后请同步 README.md#AI-工具列表`,
   )
 })
 

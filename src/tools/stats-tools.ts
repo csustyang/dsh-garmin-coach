@@ -98,43 +98,6 @@ export function defineStatsTools(
       },
     }),
     defineGarminTool({
-      name: 'garmin_distance_stats',
-      description:
-        '统计指定时间窗口的总距离、次数、平均配速、最好配速。例如"本月跑量"。',
-      parameters: {
-        days: { type: 'integer', description: '统计最近多少天' },
-        sport: { type: 'string', description: '运动类型，默认全部' },
-      },
-      execute: async (args) => {
-        const { days, sport } = args as { days?: number; sport?: string }
-        return stats.distanceStats(store, { days, sport })
-      },
-    }),
-    defineGarminTool({
-      name: 'garmin_daily_stats',
-      description:
-        '统计最近 N 天的每日健康：平均步数、静息心率、睡眠、压力、HRV。',
-      parameters: {
-        days: { type: 'integer', description: '统计最近多少天，默认 7' },
-      },
-      execute: async (args) => {
-        const { days } = args as { days?: number }
-        return stats.dailyStats(store, { days: days ?? 7 })
-      },
-    }),
-    defineGarminTool({
-      name: 'garmin_sport_breakdown',
-      description:
-        '统计运动类型分布：每种运动的活动次数与总距离。用于了解训练结构。',
-      parameters: {
-        days: { type: 'integer', description: '统计最近多少天' },
-      },
-      execute: async (args) => {
-        const { days } = args as { days?: number }
-        return stats.sportBreakdown(store, days)
-      },
-    }),
-    defineGarminTool({
       name: 'garmin_report',
       description:
         '生成运动报告：周报/月报/季度/年度/自定义日期范围。返回聚合数据（活动、健康、对比），' +
@@ -326,26 +289,6 @@ export function defineStatsTools(
           goal: plan ? plan.goal : null,
           hasPlan: !!plan,
         }
-      },
-    }),
-    defineGarminTool({
-      name: 'garmin_clear_training_plan',
-      description: '清除已保存的训练计划缓存，下次查询将重新生成。',
-      parameters: {},
-      execute: async () => {
-        await store.clearTrainingPlan()
-        return { ok: true, message: '训练计划缓存已清除' }
-      },
-    }),
-    defineGarminTool({
-      name: 'garmin_plan_history',
-      description:
-        '查看训练计划的历史版本（备份）。每次保存/切换计划时旧版会备份到 history，' +
-        'AI 误判覆盖后可找回。返回历史列表（时间/目标/任务数/打卡数）。',
-      parameters: {},
-      execute: async () => {
-        const history = await store.listPlanHistory()
-        return { ok: true, history: history }
       },
     }),
     defineGarminTool({
