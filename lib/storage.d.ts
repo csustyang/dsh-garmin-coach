@@ -80,7 +80,18 @@ export interface GarminStoreOptions {
 export declare class GarminStoreFile {
     private readonly filePath;
     private cache;
+    /** 缓存权限检查结果（一次检查后所有写操作都用）*/
+    private _permChecked;
+    private _permOk;
     constructor(opts?: GarminStoreOptions);
+    /**
+     * 检查写权限（一次性，缓存结果）
+     *
+     * DSH 沙箱默认没 full access 权限时，写入会失败但错误信息不明确。
+     * 这里用写一个临时文件来探测，失败时抛友好错误告诉用户怎么修。
+     */
+    checkPermission(): Promise<void>;
+    private permissionErrorMessage;
     /** 读（带内存缓存，避免频繁磁盘 IO）*/
     read(): Promise<GarminStore>;
     /** 原子写 */

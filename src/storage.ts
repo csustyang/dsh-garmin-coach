@@ -20,7 +20,7 @@
  *    上层查询引擎接口不变。
  */
 
-import { mkdir, readFile, rename, writeFile, rm, readdir } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile, rm, readdir, unlink } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { logger } from './logger.js'
 
@@ -98,6 +98,9 @@ export interface GarminStoreOptions {
 export class GarminStoreFile {
   private readonly filePath: string
   private cache: GarminStore | null = null
+  /** 缓存权限检查结果（一次检查后所有写操作都用）*/
+  private _permChecked: boolean = false
+  private _permOk: boolean = true
 
   constructor(opts: GarminStoreOptions = {}) {
     // 固定数据目录：优先用 DSH_HOME（~/.dsh/data），否则 cwd/data。
@@ -109,6 +112,46 @@ export class GarminStoreFile {
     const dir =
       opts.dataDir ?? join(process.env.HOME ?? process.cwd(), 'data')
     this.filePath = join(dir, 'garmin.json')
+  }
+
+  /**
+   * 检查写权限（一次性，缓存结果）
+   *
+   * DSH 沙箱默认没 full access 权限时，写入会失败但错误信息不明确。
+   * 这里用写一个临时文件来探测，失败时抛友好错误告诉用户怎么修。
+   */
+  async checkPermission(): Promise<void> {
+    if (this._permChecked) {
+      if (!this._permOk) {
+        throw new Error(this.permissionErrorMessage())
+      }
+      return
+    }
+    this._permChecked = true
+    const testPath = `${this.filePath}.perm-test`
+    try {
+      await writeFile(testPath, 'perm-test', 'utf8')
+      await unlink(testPath).catch(() => {}) // 清理失败不影响结果
+      this._permOk = true
+    } catch (e: unknown) {
+      this._permOk = false
+      const err = e as NodeJS.ErrnoException
+      if (err.code === 'EACCES' || err.code === 'EPERM' || err.code === 'EROFS') {
+        // 抛友好错误
+        throw new Error(this.permissionErrorMessage())
+      }
+      // 其他错误（磁盘满、IO 错误等）抛原错
+      throw e
+    }
+  }
+
+  private permissionErrorMessage(): string {
+    return (
+      'DSH 沙箱没 full access 权限，无法写入数据。\n' +
+      '尝试写入路径：' + this.filePath + '\n' +
+      '修复方法：在 DSH 设置中开启「完整文件访问」/full file access 权限，然后重启 DSH。\n' +
+      '（Windows / macOS 沙箱环境通常需要此权限才能写数据到 ~/data/）'
+    )
   }
 
   /** 读（带内存缓存，避免频繁磁盘 IO）*/
@@ -139,6 +182,7 @@ export class GarminStoreFile {
 
   /** 原子写 */
   async write(store: GarminStore): Promise<void> {
+    await this.checkPermission()
     await mkdir(dirname(this.filePath), { recursive: true })
     const tmp = `${this.filePath}.${process.pid}.tmp`
     await writeFile(tmp, JSON.stringify(store, null, 2), 'utf8')
@@ -252,6 +296,7 @@ export class GarminStoreFile {
     if (old) {
       await this.backupPlan(old)
     }
+    await this.checkPermission()
     await mkdir(dirname(this.planPath), { recursive: true })
     await writeFile(this.planPath, JSON.stringify(plan, null, 2), 'utf8')
   }
@@ -369,6 +414,7 @@ export class GarminStoreFile {
 
   /** 写日记到磁盘 */
   private async writeDiary(entries: DiaryEntry[]): Promise<void> {
+    await this.checkPermission()
     await mkdir(dirname(this.diaryPath), { recursive: true })
     await writeFile(this.diaryPath, JSON.stringify({ entries: entries }, null, 2), 'utf8')
   }

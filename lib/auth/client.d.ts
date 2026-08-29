@@ -50,6 +50,12 @@ export declare class GarminClient {
     private exchangeTicket;
     private exchangeDiToken;
     private refreshDiToken;
+    /**
+     * 是否已登录（disk token 存在且含 di.access_token）。
+     * 用于工具在未连接时跳过 getApi() 直接返回降级响应，
+     * 避免 withBoundary 的 fallback 对象违反 output schema。
+     */
+    hasToken(): Promise<boolean>;
     getApi(): Promise<ApiHandle>;
     private fetchWithTimeout;
     private fetchDisplayName;
