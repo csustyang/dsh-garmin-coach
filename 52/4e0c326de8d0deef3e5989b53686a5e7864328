@@ -1,0 +1,27 @@
+package.json
+  s_88f3a2ca982f26::t_7426c88e9372c1 37-39
+src/index.ts
+  s_88f3a2ca982f26::t_784ce5423cc460 254,258-259,264-265
+src/storage.ts
+  s_88f3a2ca982f26::t_796b733fd2a973 25,113,115,464
+lib/index.js
+  s_88f3a2ca982f26::t_22d86495de23cd 165,169-170,176-177
+lib/storage.js
+  s_88f3a2ca982f26::t_f9463bf992934e 24,51-52,345
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "524e0c326de8d0deef3e5989b53686a5e7864328",
+  "prompts": {},
+  "sessions": {
+    "s_88f3a2ca982f26": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9af4a2e4-0056-4f6f-8913-a5e444bd36b1",
+        "model": "unknown"
+      },
+      "human_author": "thomas <yt851388850@qq.com>"
+    }
+  }
+}
