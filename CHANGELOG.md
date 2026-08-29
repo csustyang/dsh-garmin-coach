@@ -1,5 +1,25 @@
 # 更新日志
 
+## 0.1.2（2026-08-29）— 兼容性修复
+
+### 🐛 修复
+- 适配 DSH 框架 commands.register 新契约（name/handler），修复公司电脑报"value must be a string"
+- whoami() 工具在未连接账号时直接返回友好字符串，避免 withBoundary 兜底对象违反 string schema
+- storage Windows 路径 bug：用 `path.dirname` 替代 `lastIndexOf('/')`（macOS/Linux 兼容）
+
+### 🧪 测试
+- 新增回归测试集 64+ 用例（contracts/unit 分层）
+- 新增 storage-permission 回归测试
+
+### 📚 文档
+- README 加「文件写入权限」章节（说明 DSH 沙箱需要 full access）
+- README 区分 macOS/Linux（`~/data/`）和 Windows（`<DSH_cwd>\data\`）数据路径
+
+## 0.1.1（2026-08-28）— npm 发布修复
+
+- 移除 `package.json` 的 `private: true` 字段（npm publish 要求）
+- 同步 `package-lock.json`
+
 ## 0.1.0（2026-08-26）— 首次发布
 
 ### ✨ 功能
