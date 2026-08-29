@@ -22,6 +22,7 @@ import type { GarminQueries } from './api/queries.js'
 import { defineGarminTools } from './tools/register.js'
 import { defineStatsTools } from './tools/stats-tools.js'
 import { GarminStoreFile } from './storage.js'
+import type { SyncResult } from './sync.js'
 import { installConnectRoute, makeConnectHandler } from './connect.js'
 import {
   GARMIN_SETTINGS_NS,
@@ -282,8 +283,8 @@ async function syncOnConnect(
   store: GarminStoreFile | null,
   queries: ReturnType<typeof makeQueries> | null,
   getSettings: () => GarminSettingsValue,
-): Promise<void> {
-  if (!store || !queries) return
+): Promise<SyncResult | undefined> {
+  if (!store || !queries) return undefined
   try {
     const settings = getSettings()
     const days = settings.syncDaysBack ?? 14
@@ -294,8 +295,10 @@ async function syncOnConnect(
       queries,
     })
     logger.info('settings-web', `连接后自动同步完成: ${JSON.stringify(result)}`)
+    return result
   } catch (e) {
     logger.error('settings-web', '连接后自动同步失败', e)
+    return undefined
   }
 }
 

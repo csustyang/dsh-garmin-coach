@@ -36,7 +36,10 @@ export function defineGarminTool(def: {
     description: def.description,
     parameters: def.parameters,
     output: {
-      schema: (def.outputSchema ?? { type: 'string' }) as never,
+      // ponytail: 默认放开 schema（任何 JSON 值都合法）；具体工具可用 outputSchema 收紧。
+      // 原先默认 { type: 'string' }，但工具大多返回对象/数组，会触发框架
+      // "value must be a string" 校验错误。
+      schema: (def.outputSchema ?? {}) as never,
       render: jsonRender,
     },
     execute: withBoundary(
