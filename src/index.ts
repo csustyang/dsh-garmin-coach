@@ -251,21 +251,18 @@ function tryRegisterCommands(ctx: PluginContext, queries: GarminQueries): void {
         images: false,
       },
       handler: async (input: string, _signal?: AbortSignal) => {
-        // 命令 handler 内部：catch 一切异常，返回降级响应
+        // 命令 handler 内部：catch 一切异常，返回 CommandResult（dsh 框架契约）
         try {
           const daily = await queries.daily()
           return {
-            ok: true,
-            date: new Date().toISOString().slice(0, 10),
-            steps: (daily as { totalSteps?: number } | null)?.totalSteps,
-            message: input || 'Garmin 今日状态',
+            kind: 'success',
+            text: `${input || 'Garmin 今日状态'}\n日期：${new Date().toISOString().slice(0, 10)}\n步数：${(daily as { totalSteps?: number } | null)?.totalSteps ?? '—'}`,
           }
         } catch (e) {
           logger.error('commands.garmin-dashboard', 'handler failed', e)
           return {
-            ok: false,
-            error: '未连接或 Garmin 暂时不可用',
-            hint: '在 Settings → Garmin Coach 连接账号',
+            kind: 'error',
+            text: '未连接或 Garmin 暂时不可用。在 Settings → Garmin Coach 连接账号。',
           }
         }
       },

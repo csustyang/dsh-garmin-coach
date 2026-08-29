@@ -34,11 +34,9 @@
     "clean": "rm -rf lib-tests"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "*"
-  },
-  "dependencies": {
-    "@deepseek-ai/dsh-settings": "^0.0.1-rc.1",
-    "@deepseek-ai/dsh-tools": "^0.0.1-rc.1",
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.8",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.8",
     "schemastery": "^3.18.0"
   },
   "devDependencies": {

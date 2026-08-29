@@ -22,6 +22,7 @@
 
 import { mkdir, readFile, rename, writeFile, rm, readdir, unlink } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
 import { logger } from './logger.js'
 
 export interface ActivityRecord {
@@ -109,8 +110,9 @@ export class GarminStoreFile {
     // 固定数据目录：优先显式 dataDir；否则用用户主目录下的 data（~ /data）。
     // 不依赖 process.cwd()（DSH 进程 cwd 和开发时不同）也不依赖 DSH_HOME
     // （DSH 实际用的是 cwd/data，即 ~/data）。
+    // Windows dsh 进程 env.HOME 缺失时，homedir() 兜底到用户主目录，避免落到 cwd。
     const dir =
-      opts.dataDir ?? join(process.env.HOME ?? process.cwd(), 'data')
+      opts.dataDir ?? join(process.env.HOME ?? homedir(), 'data')
     this.filePath = join(dir, 'garmin.json')
   }
 
@@ -459,7 +461,7 @@ export interface TrainingPlanCache {
 
 /** 数据文件路径（给用户/日志看）*/
 export function dataFilePath(dataDir?: string): string {
-  const dir = dataDir ?? join(process.env.HOME ?? process.cwd(), 'data')
+  const dir = dataDir ?? join(process.env.HOME ?? homedir(), 'data')
   return join(dir, 'garmin.json')
 }
 
