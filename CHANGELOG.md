@@ -1,5 +1,18 @@
 # 更新日志
 
+## 0.1.3（2026-08-29）— 精简工具集 + 账号切换
+
+### 🔧 优化
+- 移除 8 个低频工具：readiness / training / weekly / distance_stats / daily_stats / sport_breakdown / clear_training_plan / plan_history（精简 AI 工具列表，保持 6 基础 + 5 统计）
+- README 补「bundles 手动加载」说明 + 一键安装流程
+
+### ✨ 新功能
+- settings-web：检测到账号变更（email 或 isCn）自动清掉旧 token，提示用户重新连接
+- 连接成功后把 displayName / status 写回 settings（避免"已连接"但"当前用户"显示空）
+
+### 🧪 测试
+- 同步工具数量断言（≥ 11）
+
 ## 0.1.2（2026-08-29）— 兼容性修复
 
 ### 🐛 修复
