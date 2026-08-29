@@ -104,15 +104,12 @@ export class GarminStoreFile {
   private _permOk: boolean = true
 
   constructor(opts: GarminStoreOptions = {}) {
-    // 固定数据目录：优先用 DSH_HOME（~/.dsh/data），否则 cwd/data。
-    // 不依赖 process.cwd() 的相对路径——DSH 进程 cwd 和开发时不同，
-    // 相对路径会导致读写不一致（计划保存到 A 目录，DSH 从 B 目录读）。
-    // 固定数据目录：优先显式 dataDir；否则用用户主目录下的 data（~ /data）。
-    // 不依赖 process.cwd()（DSH 进程 cwd 和开发时不同）也不依赖 DSH_HOME
-    // （DSH 实际用的是 cwd/data，即 ~/data）。
-    // Windows dsh 进程 env.HOME 缺失时，homedir() 兜底到用户主目录，避免落到 cwd。
+    // 固定数据目录：优先显式 dataDir；否则用用户主目录下的 data（~/data）。
+    // 用 homedir() 而非 process.env.HOME——Windows 下 HOME 可能被 Git Bash/msys
+    // 设成 POSIX 风格路径（如 /c/Users/young），导致与其他平台不一致。
+    // homedir() 在三平台都返回正确的用户主目录，避免落到 cwd。
     const dir =
-      opts.dataDir ?? join(process.env.HOME ?? homedir(), 'data')
+      opts.dataDir ?? join(homedir(), 'data')
     this.filePath = join(dir, 'garmin.json')
   }
 
@@ -461,7 +458,7 @@ export interface TrainingPlanCache {
 
 /** 数据文件路径（给用户/日志看）*/
 export function dataFilePath(dataDir?: string): string {
-  const dir = dataDir ?? join(process.env.HOME ?? homedir(), 'data')
+  const dir = dataDir ?? join(homedir(), 'data')
   return join(dir, 'garmin.json')
 }
 

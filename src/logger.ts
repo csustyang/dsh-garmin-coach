@@ -10,18 +10,19 @@
  */
 
 import { appendFileSync, mkdirSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { existsSync } from 'node:fs'
 
 const PLUGIN_ID = 'garmin-coach'
 
 function resolveLogDir(): string {
-  const dshHome = process.env['DSH_HOME']
+  // 与 token 存储一致：$DSH_HOME 优先，否则 ~/.dsh。不要回退到 cwd——
+  // DSH 从不同目录启动时日志会写到不同位置，无法统一排查。
+  const dshHome = process.env['DSH_HOME']?.trim()
   const profile = process.env['DSH_PROFILE'] ?? 'web'
-  if (dshHome) {
-    return resolve(dshHome, 'profiles', profile, 'logs')
-  }
-  return resolve(process.cwd(), 'logs')
+  const home = dshHome ? dshHome : join(homedir(), '.dsh')
+  return resolve(home, 'profiles', profile, 'logs')
 }
 
 function ensureLogFile(): string {

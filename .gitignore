@@ -4,6 +4,7 @@ node_modules/
 
 # 测试/临时
 .garmin-test/
+.garmin/
 .logs/
 *.log
 npm-debug.log*

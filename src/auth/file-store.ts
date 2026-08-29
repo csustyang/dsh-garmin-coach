@@ -6,6 +6,7 @@
 
 import { chmod, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { TokenStore } from './token-store.js'
 import type { GarminCachedTokens, GarminMfaState } from './types.js'
@@ -17,11 +18,11 @@ export class FileTokenStore implements TokenStore {
   ) {}
 
   static default(): FileTokenStore {
-    // 优先用 DSH_HOME（~/.dsh），否则回退 cwd——确保 token 路径稳定，不受插件加载 cwd 影响
-    const home = process.env.DSH_HOME
-    const base = home
-      ? join(home, '.garmin')
-      : join(process.cwd(), '.garmin')
+    // 按 DSH 的 home 解析规则定位 token 目录：$DSH_HOME 优先，否则 ~/.dsh。
+    // 不要回退到 process.cwd()——插件从不同 cwd 启动时 token 路径会漂移，导致读不到已保存的 token。
+    const envHome = process.env.DSH_HOME?.trim()
+    const home = envHome ? envHome : join(homedir(), '.dsh')
+    const base = join(home, '.garmin')
     return new FileTokenStore(
       join(base, 'tokens.json'),
       join(base, 'mfa-state.json'),
