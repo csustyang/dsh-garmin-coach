@@ -66,11 +66,22 @@ globalThis.test('storage: Windows 路径下能正确创建 training-plan-history
     !expectedHistory.includes('undefined'),
     `history 路径不应包含 undefined，实际: ${expectedHistory}`,
   )
-  // 反向验证：原 bug 会在 Windows 下产生空串
+  // 反向验证：原 bug 行为
+  // - Windows 路径（只用 \）：lastIndexOf('/') 永远 -1 → substring(0, -1) = '' → 触发 bug
+  // - Mac/Linux 路径（含 /）：lastIndexOf('/') 找到正常位置 → 不触发 bug
   const oldStyle = filePath.substring(0, filePath.lastIndexOf('/'))
-  assert.equal(
-    oldStyle,
-    '',
-    `原 lastIndexOf('/') 在 Windows 上是空串（这就是 bug 根因），实际: '${oldStyle}'`,
-  )
+  if (process.platform === 'win32') {
+    assert.equal(
+      oldStyle,
+      '',
+      `Windows 路径下原 lastIndexOf('/') 应该是空串（这就是 bug 根因），实际: '${oldStyle}'`,
+    )
+  } else {
+    // Mac / Linux：原实现碰巧能工作，验证这一点
+    assert.notEqual(
+      oldStyle,
+      '',
+      `Mac/Linux 路径下原 lastIndexOf('/') 碰巧能工作（找到正斜杠），不是空串`,
+    )
+  }
 })
