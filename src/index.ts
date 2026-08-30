@@ -60,6 +60,8 @@ const GarminSettingsSchema = z.object({
   displayName: z.string().default(''),
   lastSyncAt: z.string().default(''),
   syncDaysBack: z.number().default(14),
+  /** 全量同步起始日期（YYYY-MM-DD）*/
+  fullSyncFrom: z.string().default(''),
   // 说明：只支持手动同步，不配置自动同步频率（防 Garmin 行为指纹检测）
 })
 
@@ -384,7 +386,16 @@ export function apply(rawCtx: Context): void {
         }
       }
 
-      const handler = makeGarminSettingsHandler({
+      /** 全量同步实时进度（内存态，供前端轮询）*/
+const fullSyncState: {
+  status: 'idle' | 'running' | 'paused' | 'done' | 'error'
+  processed: number
+  total: number
+  cursor?: string
+  error?: string
+} = { status: 'idle', processed: 0, total: 0 }
+
+const handler = makeGarminSettingsHandler({
         getValue: getSettingsValue,
         getRevision,
         isWritable: () => {
@@ -500,6 +511,66 @@ export function apply(rawCtx: Context): void {
             logger.error('settings-web', '手动同步失败', e)
             return { ok: false, message: e instanceof Error ? e.message : String(e) }
           }
+        },
+        // 全量同步（只同步活动，从指定日期起每 100 天批量拉取）
+        syncAll: async (from) => {
+          try {
+            if (!garminStore) {
+              return { ok: false, message: '数据存储未就绪' }
+            }
+            // 已在跑则不重复启动
+            if (fullSyncState.status === 'running') {
+              return { ok: true, started: true, message: '全量同步已在运行中', progress: fullSyncState }
+            }
+            const settings = getSettingsValue()
+            const fromDate = from || settings.fullSyncFrom || '2022-01-01'
+            logger.info('settings-web', '全量同步触发（从 ' + fromDate + '）')
+            const { syncAllActivities } = await import('./sync.js')
+            // 后台异步执行：立即返回，进度由 syncAllProgress 轮询
+            fullSyncState.status = 'running'
+            fullSyncState.processed = 0
+            fullSyncState.total = 0
+            fullSyncState.cursor = fromDate
+            fullSyncState.error = undefined
+            void (async () => {
+              try {
+                const result = await syncAllActivities(garminStore, queries, {
+                  from: fromDate,
+                  windowDays: 100,
+                  sleepMs: 2000,
+                  onProgress: (p) => {
+                    fullSyncState.processed = p.processed
+                    fullSyncState.total = p.total
+                    fullSyncState.status = p.status
+                    fullSyncState.cursor = p.cursor
+                    fullSyncState.error = p.error
+                  },
+                })
+                fullSyncState.status = result.synced ? 'done' : (result.error ? 'error' : 'done')
+                if (result.error) fullSyncState.error = result.error
+                if (result.synced) {
+                  try {
+                    const storeData = await garminStore.read()
+                    const s = (rawCtx as unknown as { settings?: { replace?: (ns: unknown, v: unknown, rev?: number) => Promise<unknown> } }).settings
+                    await s?.replace?.(GARMIN_SETTINGS_NS, Object.assign({}, getSettingsValue(), { lastSyncAt: storeData.lastSyncAt || new Date().toISOString() }))
+                  } catch (e) {
+                    logger.error('settings-web', '全量同步后更新 lastSyncAt 失败', e)
+                  }
+                }
+              } catch (e) {
+                fullSyncState.status = 'error'
+                fullSyncState.error = e instanceof Error ? e.message : String(e)
+              }
+            })()
+            return { ok: true, started: true, message: '全量同步已启动，正在后台拉取…', progress: fullSyncState }
+          } catch (e) {
+            logger.error('settings-web', '全量同步启动失败', e)
+            return { ok: false, message: e instanceof Error ? e.message : String(e) }
+          }
+        },
+        // 全量同步进度查询（前端轮询）
+        syncAllProgress: async () => {
+          return { ok: true, progress: fullSyncState }
         },
         // 看板聚合数据
         dashboard: async () => {

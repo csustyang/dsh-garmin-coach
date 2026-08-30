@@ -18,6 +18,14 @@ export interface SyncOptions {
     store: GarminStoreFile;
     queries: GarminQueries;
 }
+/** 全量同步进度 */
+export interface FullSyncProgress {
+    processed: number;
+    total: number;
+    status: 'idle' | 'running' | 'paused' | 'done' | 'error';
+    cursor?: string;
+    error?: string;
+}
 export interface SyncResult {
     synced: boolean;
     activitiesAdded: number;
@@ -46,3 +54,28 @@ export declare function toDailyRecord(date: string, raw: unknown): DailyRecord;
  *  5. 更新 lastSyncAt
  */
 export declare function syncGarmin(opts: SyncOptions): Promise<SyncResult>;
+/**
+ * 全量同步活动（不拉健康数据）。
+ *
+ * 从用户指定起始日期到今日，按 WINDOW_DAYS（100 天）为一个窗口分批拉取：
+ *   - 每窗口拉一次 activities（limit 200）
+ *   - 按 activityId 去重落库（重复同步不产生重复数据）
+ *   - 窗口间固定间隔 sleepMs（默认 1200ms）防 Garmin 429 风控
+ *   - 遇 429 立即停止并返回已处理进度（断点续传）
+ */
+export declare function syncAllActivities(store: GarminStoreFile, queries: GarminQueries, opts: {
+    from: string;
+    windowDays?: number;
+    sleepMs?: number;
+    resume?: boolean;
+    /** 进度回调（后台任务用） */
+    onProgress?: (p: FullSyncProgress) => void;
+}): Promise<{
+    synced: boolean;
+    activitiesAdded: number;
+    activitiesTotal: number;
+    processedWindows: number;
+    totalWindows: number;
+    cursor: string;
+    error?: string;
+}>;

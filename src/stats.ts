@@ -38,11 +38,58 @@ export function formatDuration(sec: number | undefined): string {
 }
 
 /** 活动列表（按 startTime 降序）*/
+/**
+ * 从 raw 载荷补齐新增的解析字段（迁移辅助）。
+ *
+ * 老数据落库时只存了部分字段，raw 里有原始值。此函数在读取时补齐，
+ * 无需重新调 Garmin API 或改写存储文件。
+ */
+function hydrateFromRaw(a: ActivityRecord): ActivityRecord {
+  const raw = (a.raw ?? {}) as Record<string, unknown>
+  const num = (v: unknown): number | undefined =>
+    typeof v === 'number' ? v : undefined
+  const toPace = (speed: unknown): number | undefined => {
+    const s = num(speed)
+    return s && s > 0 ? Math.round(1000 / s) : undefined
+  }
+  return {
+    ...a,
+    isPR: a.isPR ?? (typeof raw.isPR === 'boolean' ? raw.isPR : undefined),
+    elevationLossMeters: a.elevationLossMeters ?? num(raw.elevationLoss),
+    maxCadence: a.maxCadence ?? num(raw.maxRunningCadenceInStepsPerMinute),
+    verticalOscillationCm: a.verticalOscillationCm ?? num(raw.avgVerticalOscillation),
+    strideLengthCm: a.strideLengthCm ?? num(raw.avgStrideLength),
+    verticalRatioPct: a.verticalRatioPct ?? num(raw.avgVerticalRatio),
+    gradeAdjustedPaceSecPerKm:
+      a.gradeAdjustedPaceSecPerKm ?? toPace(raw.avgGradeAdjustedSpeed),
+    bestPaceSecPerKm: a.bestPaceSecPerKm ?? toPace(raw.maxSpeed),
+    vO2Max: a.vO2Max ?? num(raw.vO2MaxValue),
+    groundContactTimeMs: a.groundContactTimeMs ?? num(raw.avgGroundContactTime),
+    trainingEffect: a.trainingEffect ?? num(raw.aerobicTrainingEffect),
+    anaerobicEffect: a.anaerobicEffect ?? num(raw.anaerobicTrainingEffect),
+    trainingLoad: a.trainingLoad ?? num(raw.activityTrainingLoad),
+    avgPower: a.avgPower ?? num(raw.avgPower),
+    maxPower: a.maxPower ?? num(raw.maxPower),
+    normPower: a.normPower ?? num(raw.normPower),
+    moderateMinutes: a.moderateMinutes ?? num(raw.moderateIntensityMinutes),
+    vigorousMinutes: a.vigorousMinutes ?? num(raw.vigorousIntensityMinutes),
+    minTemperature: a.minTemperature ?? num(raw.minTemperature),
+    maxTemperature: a.maxTemperature ?? num(raw.maxTemperature),
+    // 详情浮层引用的其他字段（raw 里存在但未解析到顶层）
+    maxSpeed: a.maxSpeed ?? num(raw.maxSpeed),
+    minElevation: a.minElevation ?? num(raw.minElevation),
+    maxElevation: a.maxElevation ?? num(raw.maxElevation),
+    movingDuration: a.movingDuration ?? num(raw.movingDuration),
+    elapsedDuration: a.elapsedDuration ?? num(raw.elapsedDuration),
+    bmrCalories: a.bmrCalories ?? num(raw.bmrCalories),
+  }
+}
+
 async function sortedActivities(store: GarminStoreFile): Promise<ActivityRecord[]> {
   const data = await store.read()
-  return Object.values(data.activities).sort((a, b) =>
-    b.startTime.localeCompare(a.startTime),
-  )
+  return Object.values(data.activities)
+    .map(hydrateFromRaw)
+    .sort((a, b) => b.startTime.localeCompare(a.startTime))
 }
 
 /** 按运动类型过滤 */
@@ -311,9 +358,9 @@ export async function dashboardSummary(
   }>
 }> {
   const data = await store.read()
-  const activities = Object.values(data.activities).sort((a, b) =>
-    b.startTime.localeCompare(a.startTime),
-  )
+  const activities = Object.values(data.activities)
+    .map(hydrateFromRaw)
+    .sort((a, b) => b.startTime.localeCompare(a.startTime))
   const runs = activities.filter((a) => a.sport === 'running')
 
   // 总览
@@ -330,7 +377,12 @@ export async function dashboardSummary(
 
   // 最近 7 天（本周）
   const weekStart = Date.now() - 7 * 24 * 3600 * 1000
-  const recent = activities.slice(0, 10)
+  // 全量活动（供前端滑动查看），去掉 raw 精简接口体积，但保留 parentTypeId 供前端分组
+  const recent = activities.map((a) => {
+    const { raw, ...rest } = a
+    const at = (raw as Record<string, unknown> | undefined)?.activityType as Record<string, unknown> | undefined
+    return { ...rest, parentTypeId: at?.parentTypeId as number | undefined }
+  })
   const weekly = [
     {
       week: '本周',

@@ -38,8 +38,58 @@ export interface ActivityRecord {
   maxHr?: number
   calories?: number
   elevationGainMeters?: number
+  /** 累计下降（米）*/
+  elevationLossMeters?: number
   avgCadence?: number
+  /** 最高步频（步/分）*/
+  maxCadence?: number
   trainingEffect?: number
+  /** 是否个人纪录（PR）*/
+  isPR?: boolean
+  /** 最佳配速（秒/km，由 maxSpeed 换算）*/
+  bestPaceSecPerKm?: number
+  /** 平均垂直摆动（cm）*/
+  verticalOscillationCm?: number
+  /** 平均步长（cm）*/
+  strideLengthCm?: number
+  /** 平均垂直步幅比（%）*/
+  verticalRatioPct?: number
+  /** 平均坡度调整配速（m/s → 秒/km）*/
+  gradeAdjustedPaceSecPerKm?: number
+  /** 最大摄氧量 VO2max（ml/kg/min）*/
+  vO2Max?: number
+  /** 平均触地时间（ms）*/
+  groundContactTimeMs?: number
+  /** 无氧训练效果（分数）*/
+  anaerobicEffect?: number
+  /** 训练负荷 */
+  trainingLoad?: number
+  /** 平均功率（W）*/
+  avgPower?: number
+  /** 最大功率（W）*/
+  maxPower?: number
+  /** 标准化功率（W）*/
+  normPower?: number
+  /** 中等强度时长（分钟）*/
+  moderateMinutes?: number
+  /** 高强度时长（分钟）*/
+  vigorousMinutes?: number
+  /** 最低温度（℃）*/
+  minTemperature?: number
+  /** 最高温度（℃）*/
+  maxTemperature?: number
+  /** 最大速度（m/s）*/
+  maxSpeed?: number
+  /** 移动时间（秒）*/
+  movingDuration?: number
+  /** 全程耗时（秒）*/
+  elapsedDuration?: number
+  /** 最低海拔（m）*/
+  minElevation?: number
+  /** 最高海拔（m）*/
+  maxElevation?: number
+  /** 基础代谢热量（千卡）*/
+  bmrCalories?: number
   /** 原始 Garmin 载荷，备用 */
   raw?: unknown
 }
@@ -76,6 +126,8 @@ export interface GarminStore {
   daily: Record<string, DailyRecord>
   sportFilter: string[]
   syncDaysBack: number
+  /** 全量同步断点游标（上次拉到的起始日期，空=无进行中）*/
+  fullSyncCursor?: string
 }
 
 const DEFAULT_STORE: GarminStore = {
@@ -85,6 +137,7 @@ const DEFAULT_STORE: GarminStore = {
   daily: {},
   sportFilter: [],
   syncDaysBack: 14,
+  fullSyncCursor: '',
 }
 
 export interface GarminStoreOptions {
@@ -243,6 +296,19 @@ export class GarminStoreFile {
     await this.mutate((store) => {
       store.lastSyncAt = lastSyncAt
       store.syncDaysBack = syncDaysBack
+    })
+  }
+
+  /** 全量同步断点游标：读取 */
+  async loadSyncCursor(): Promise<string> {
+    const data = await this.read()
+    return data.fullSyncCursor ?? ''
+  }
+
+  /** 全量同步断点游标：保存（空串=清除）*/
+  async saveSyncCursor(cursor: string): Promise<void> {
+    await this.mutate((store) => {
+      store.fullSyncCursor = cursor
     })
   }
 

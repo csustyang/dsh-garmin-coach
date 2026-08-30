@@ -20,6 +20,8 @@ export interface GarminSettingsValue {
   displayName?: string
   lastSyncAt?: string
   syncDaysBack?: number
+  /** 全量同步起始日期 */
+  fullSyncFrom?: string
 }
 
 export const GARMIN_SETTINGS_NS = 'garmin-coach'
@@ -76,6 +78,10 @@ interface SettingsRouteDeps {
   }>
   /** 手动触发同步 */
   sync: () => Promise<{ ok: boolean; message?: string; result?: unknown }>
+  /** 全量同步（只同步活动，从指定日期起） */
+  syncAll: (from?: string) => Promise<{ ok: boolean; message?: string; result?: unknown }>
+  /** 全量同步进度查询 */
+  syncAllProgress: () => Promise<{ ok: boolean; progress?: unknown }>
   /** 看板聚合数据 */
   dashboard: () => Promise<unknown>
   /** AI 训练建议生成 */
@@ -113,7 +119,9 @@ export function makeGarminSettingsHandler(deps: SettingsRouteDeps) {
       }
 
       const body = JSON.parse(await readBody(req)) as {
-        action?: 'save' | 'connect' | 'sync' | 'dashboard' | 'insights' | 'toggleTask'
+        action?: 'save' | 'connect' | 'sync' | 'syncAll' | 'syncAllProgress' | 'dashboard' | 'insights' | 'toggleTask'
+        /** 全量同步起始日期 */
+        from?: string
         value?: GarminSettingsValue
         expectedRevision?: number
         email?: string
@@ -156,6 +164,19 @@ export function makeGarminSettingsHandler(deps: SettingsRouteDeps) {
       if (body.action === 'sync') {
         const result = await deps.sync()
         sendJson(res, result.ok ? 200 : 400, { ...result })
+        return
+      }
+
+      if (body.action === 'syncAll') {
+        const from = typeof body.from === 'string' ? body.from : undefined
+        const result = await deps.syncAll(from)
+        sendJson(res, result.ok ? 200 : 400, { ...result })
+        return
+      }
+
+      if (body.action === 'syncAllProgress') {
+        const result = await deps.syncAllProgress()
+        sendJson(res, 200, { ...result })
         return
       }
 

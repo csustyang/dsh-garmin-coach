@@ -17,6 +17,8 @@ export interface GarminSettingsValue {
     displayName?: string;
     lastSyncAt?: string;
     syncDaysBack?: number;
+    /** 全量同步起始日期 */
+    fullSyncFrom?: string;
 }
 export declare const GARMIN_SETTINGS_NS = "garmin-coach";
 interface SettingsRouteDeps {
@@ -42,6 +44,17 @@ interface SettingsRouteDeps {
         ok: boolean;
         message?: string;
         result?: unknown;
+    }>;
+    /** 全量同步（只同步活动，从指定日期起） */
+    syncAll: (from?: string) => Promise<{
+        ok: boolean;
+        message?: string;
+        result?: unknown;
+    }>;
+    /** 全量同步进度查询 */
+    syncAllProgress: () => Promise<{
+        ok: boolean;
+        progress?: unknown;
     }>;
     /** 看板聚合数据 */
     dashboard: () => Promise<unknown>;

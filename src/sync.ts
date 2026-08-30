@@ -38,6 +38,15 @@ export interface SyncOptions {
   queries: GarminQueries
 }
 
+/** 全量同步进度 */
+export interface FullSyncProgress {
+  processed: number
+  total: number
+  status: 'idle' | 'running' | 'paused' | 'done' | 'error'
+  cursor?: string
+  error?: string
+}
+
 export interface SyncResult {
   synced: boolean
   activitiesAdded: number
@@ -99,6 +108,31 @@ export function toActivityRecord(raw: unknown): ActivityRecord | null {
         : undefined,
     trainingEffect:
       typeof a.trainingEffect === 'number' ? a.trainingEffect : undefined,
+    isPR: typeof a.isPR === 'boolean' ? a.isPR : undefined,
+    elevationLossMeters:
+      typeof a.elevationLoss === 'number' ? a.elevationLoss : undefined,
+    maxCadence:
+      typeof a.maxRunningCadenceInStepsPerMinute === 'number'
+        ? a.maxRunningCadenceInStepsPerMinute
+        : undefined,
+    verticalOscillationCm:
+      typeof a.avgVerticalOscillation === 'number'
+        ? a.avgVerticalOscillation
+        : undefined,
+    strideLengthCm:
+      typeof a.avgStrideLength === 'number' ? a.avgStrideLength : undefined,
+    verticalRatioPct:
+      typeof a.avgVerticalRatio === 'number' ? a.avgVerticalRatio : undefined,
+    // 平均坡度调整配速：avgGradeAdjustedSpeed (m/s) → 秒/km
+    gradeAdjustedPaceSecPerKm:
+      typeof a.avgGradeAdjustedSpeed === 'number' && a.avgGradeAdjustedSpeed > 0
+        ? Math.round(1000 / a.avgGradeAdjustedSpeed)
+        : undefined,
+    // 最佳配速：maxSpeed (m/s) → 秒/km
+    bestPaceSecPerKm:
+      typeof a.maxSpeed === 'number' && a.maxSpeed > 0
+        ? Math.round(1000 / a.maxSpeed)
+        : undefined,
     raw: a,
   }
 }
@@ -255,5 +289,117 @@ export async function syncGarmin(opts: SyncOptions): Promise<SyncResult> {
       sportsSeen: [],
       error: e instanceof Error ? e.message : String(e),
     }
+  }
+}
+
+
+/**
+ * 全量同步活动（不拉健康数据）。
+ *
+ * 从用户指定起始日期到今日，按 WINDOW_DAYS（100 天）为一个窗口分批拉取：
+ *   - 每窗口拉一次 activities（limit 200）
+ *   - 按 activityId 去重落库（重复同步不产生重复数据）
+ *   - 窗口间固定间隔 sleepMs（默认 1200ms）防 Garmin 429 风控
+ *   - 遇 429 立即停止并返回已处理进度（断点续传）
+ */
+export async function syncAllActivities(
+  store: GarminStoreFile,
+  queries: GarminQueries,
+  opts: {
+    from: string
+    windowDays?: number
+    sleepMs?: number
+    resume?: boolean
+    /** 进度回调（后台任务用） */
+    onProgress?: (p: FullSyncProgress) => void
+  },
+): Promise<{
+  synced: boolean
+  activitiesAdded: number
+  activitiesTotal: number
+  processedWindows: number
+  totalWindows: number
+  cursor: string
+  error?: string
+}> {
+  const WINDOW_DAYS = opts.windowDays ?? 100
+  const SLEEP_MS = opts.sleepMs ?? 2000
+
+  const fromDate = new Date(opts.from + 'T00:00:00')
+  if (Number.isNaN(fromDate.getTime())) {
+    return { synced: false, activitiesAdded: 0, activitiesTotal: 0, processedWindows: 0, totalWindows: 0, cursor: opts.from, error: '无效的起始日期' }
+  }
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const totalDays = Math.max(1, Math.ceil((today.getTime() - fromDate.getTime()) / 86400000))
+  const totalWindows = Math.ceil(totalDays / WINDOW_DAYS)
+
+  const prevCursor = opts.resume ? (await store.loadSyncCursor?.() ?? opts.from) : opts.from
+  let curDate = new Date(prevCursor + 'T00:00:00')
+
+  let added = 0
+  let processed = 0
+  let lastCursor = prevCursor
+
+  // 随机 1~3 秒间隔（避免固定节奏触发 Garmin 行为指纹检测）
+  const randomSleep = () => new Promise((res) => {
+    const ms = 1000 + Math.floor(Math.random() * 2001)
+    setTimeout(res, ms)
+  })
+
+  try {
+    for (let w = 0; w < totalWindows; w++) {
+      if (curDate.getTime() > today.getTime()) break
+      const winStart = curDate.toISOString().slice(0, 10)
+      const winEndDate = new Date(curDate)
+      winEndDate.setDate(curDate.getDate() + WINDOW_DAYS - 1)
+      if (winEndDate.getTime() > today.getTime()) winEndDate.setTime(today.getTime())
+      const winEnd = winEndDate.toISOString().slice(0, 10)
+
+      // 进度回调（供后台任务 + 前端轮询）
+      if (opts.onProgress) {
+        opts.onProgress({ processed: w, total: totalWindows, status: 'running', cursor: winStart })
+      }
+
+      try {
+        const raw = (await queries.activities({ from: winStart, to: winEnd, limit: 200 })) as unknown[]
+        const acts = raw
+          .map((a) => toActivityRecord(a))
+          .filter((a): a is ActivityRecord => a !== null)
+        const n = await store.upsertActivities(acts)
+        added += n
+      } catch (e) {
+        if (String((e as Error).message).includes('429')) {
+          await store.saveSyncCursor?.(lastCursor)
+          if (opts.onProgress) opts.onProgress({ processed: w, total: totalWindows, status: 'paused', cursor: lastCursor, error: '触发 Garmin 429 限流，已保存进度，请 30 分钟后从断点续拉' })
+          return {
+            synced: false, activitiesAdded: added,
+            activitiesTotal: Object.keys((await store.read()).activities).length,
+            processedWindows: processed, totalWindows,
+            cursor: lastCursor,
+            error: '触发 Garmin 429 限流，已保存进度，请 30 分钟后从断点续拉',
+          }
+        }
+        logger.warn('syncAll', '窗口拉取失败: ' + (e as Error).message)
+      }
+
+      processed++
+      lastCursor = winStart
+      if (w < totalWindows - 1) {
+        await randomSleep()
+      }
+      await store.saveSyncCursor?.(winStart)
+      // 推进到下一个窗口起点
+      curDate.setDate(curDate.getDate() + WINDOW_DAYS)
+    }
+
+    await store.saveSyncCursor?.('')
+    const total = Object.keys((await store.read()).activities).length
+    if (opts.onProgress) opts.onProgress({ processed: totalWindows, total: totalWindows, status: 'done', cursor: lastCursor })
+    return { synced: true, activitiesAdded: added, activitiesTotal: total, processedWindows: processed, totalWindows, cursor: lastCursor }
+  } catch (e) {
+    if (opts.onProgress) opts.onProgress({ processed: processed, total: totalWindows, status: 'error', cursor: lastCursor, error: (e as Error).message })
+    return { synced: false, activitiesAdded: added, activitiesTotal: 0, processedWindows: processed, totalWindows, cursor: lastCursor, error: (e as Error).message }
   }
 }
