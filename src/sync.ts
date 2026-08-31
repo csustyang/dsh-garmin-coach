@@ -14,6 +14,7 @@ import type {
   DailyRecord,
   GarminStoreFile,
 } from './storage.js'
+import { dataFilePath } from './storage.js'
 import { logger } from './logger.js'
 
 /** 支持的常见运动类型（Garmin typeKey）*/
@@ -196,6 +197,17 @@ export function toDailyRecord(date: string, raw: unknown): DailyRecord {
  */
 export async function syncGarmin(opts: SyncOptions): Promise<SyncResult> {
   const { days = 14, sportFilter, store, queries } = opts
+  // 安全网：同步前备份 garmin.json（成功删备份，失败恢复）
+  let backupPath = ''
+  try {
+    const dataPath = dataFilePath()
+    backupPath = dataPath + '.bak.' + Date.now()
+    const { copyFile } = await import('node:fs/promises')
+    await copyFile(dataPath, backupPath)
+    logger.info('sync', '已备份数据到 ' + backupPath)
+  } catch (e) {
+    logger.warn('sync', '备份失败（继续同步）: ' + (e as Error).message)
+  }
   try {
     const endDate = new Date()
     const to = endDate.toISOString().slice(0, 10)
@@ -272,6 +284,17 @@ export async function syncGarmin(opts: SyncOptions): Promise<SyncResult> {
     const data = await store.read()
     const sportsSeen = [...new Set(filtered.map((a) => a.sport))]
 
+    // 同步成功：清理备份
+    if (backupPath) {
+      try {
+        const { unlink } = await import('node:fs/promises')
+        await unlink(backupPath)
+        logger.info('sync', '同步成功，已清理备份 ' + backupPath)
+      } catch (e) {
+        logger.error('sync', '清理备份失败: ' + (e as Error).message)
+      }
+    }
+
     return {
       synced: true,
       activitiesAdded: added,
@@ -281,6 +304,18 @@ export async function syncGarmin(opts: SyncOptions): Promise<SyncResult> {
     }
   } catch (e) {
     logger.error('sync', '同步失败', e)
+    // 同步失败：恢复备份（防止数据损坏）
+    if (backupPath) {
+      try {
+        const { copyFile, unlink } = await import('node:fs/promises')
+        const dataPath = dataFilePath()
+        await copyFile(backupPath, dataPath)
+        await unlink(backupPath)
+        logger.error('sync', '同步失败，已从备份恢复 ' + backupPath)
+      } catch (be) {
+        logger.error('sync', '恢复备份失败: ' + (be as Error).message)
+      }
+    }
     return {
       synced: false,
       activitiesAdded: 0,
