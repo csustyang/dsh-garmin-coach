@@ -43,16 +43,6 @@ export const SSO_MOBILE_UA =
 export const CONNECTAPI_UA = 'GCM-iOS-5.22.1.4'
 
 /**
- * Garmin 公开放在 S3 上的 consumer key/secret。
- * 所有第三方 Garmin 客户端用同一对凭据；Garmin 偶尔轮换，garth 在 S3 维护最新版。
- */
-export const OAUTH_CONSUMER_URL =
-  'https://thegarth.s3.amazonaws.com/oauth_consumer.json'
-export const OAUTH_CONSUMER_FALLBACK_KEY = 'fc3e99d2-118c-44b8-8ae3-03370dde24c0'
-export const OAUTH_CONSUMER_FALLBACK_SECRET = 'E08WAR897WEy2knn7aFBrvegVAf0AFdWBBF'
-export const OAUTH_CONSUMER_CACHE_TTL_SEC = 24 * 3600
-
-/**
  * Connect API 端点（来自上游 garmin.ts 的 makeApi()）。
  * 用模板字符串时插入 displayName / date / 日期区间。
  */

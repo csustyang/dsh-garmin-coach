@@ -154,7 +154,9 @@ export class GarminClient {
       throw new GarminAuthError('需要验证码（CAPTCHA），请在浏览器中登录一次')
     }
 
-    // MFA 需要：保存 cookies + email/password，等 phase 2 输入验证码
+    // MFA 需要：保存 cookies + 登录参数，等 phase 2 输入验证码。
+    // 安全：不把 email/password 写入 mfa-state.json —— 凭据只在内存用一次，用完即弃；
+    // 验证码提交时由调用方把 email 再传进来（completeMfa(code, email)）。
     if (statusType === 'MFA_REQUIRED' || body.customerMfaInfo) {
       // 捕获 set-cookie（SSO 会话 cookie，MFA 验证要用）
       const cookies = collectCookies(res)
@@ -168,8 +170,6 @@ export class GarminClient {
         mfaMethod: body.customerMfaInfo?.mfaLastMethodUsed ?? 'email',
         createdAt: new Date().toISOString(),
       }
-      ;(mfaState as { email?: string }).email = email
-      ;(mfaState as { password?: string }).password = password
       ;(mfaState as { isCn?: boolean }).isCn = this.isCn
       await this.store.saveMfaState(mfaState)
       return { kind: 'mfa_required', method: mfaState.mfaMethod }
@@ -186,7 +186,7 @@ export class GarminClient {
     return { kind: 'ok', tokens }
   }
 
-  async completeMfa(code: string): Promise<GarminCachedTokens> {
+  async completeMfa(code: string, email?: string): Promise<GarminCachedTokens> {
     const state = await this.store.loadMfaState()
     if (!state) {
       throw new GarminAuthError('没有挂起的 MFA 状态——请先调用 login()')
@@ -239,8 +239,8 @@ export class GarminClient {
       )
     }
 
-    const email = (state as { email?: string }).email ?? ''
-    const tokens = await this.exchangeTicket(ticket, email, isCn)
+    const userEmail = email ?? ''
+    const tokens = await this.exchangeTicket(ticket, userEmail, isCn)
     await this.store.saveTokens(tokens)
     await this.store.clearMfaState()
     return tokens
@@ -258,7 +258,8 @@ export class GarminClient {
     for (const clientId of DI_CLIENT_IDS) {
       try {
         const di = await this.exchangeDiToken(clientId, ticket, diauth, isCn)
-        const displayName = await this.fetchDisplayName(di).catch(() => email)
+        // 安全：displayName 失败时用空串，绝不回退成 email（避免把账号写进 tokens.json）
+        const displayName = await this.fetchDisplayName(di).catch(() => '')
         return { di, displayName }
       } catch (e) {
         lastErr = e

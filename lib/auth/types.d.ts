@@ -48,12 +48,3 @@ export interface GarminMfaState {
     readonly mfaMethod: string;
     readonly createdAt: string;
 }
-/**
- * Garmin Connect Consumer Key / Secret。
- * 来源：https://thegarth.s3.amazonaws.com/oauth_consumer.json
- * 注意：这些不是用户密钥，是 Garmin 公开给所有第三方客户端的同一对凭据。
- */
-export interface GarminConsumerCreds {
-    readonly key: string;
-    readonly secret: string;
-}

@@ -48,10 +48,8 @@ export const inject = [
 // 用 settingsNamespace() 生成命名空间（官方推荐），而不是硬编码字符串
 const SETTINGS_NAMESPACE = settingsNamespace('garmin-coach')
 
+// 安全：不持久化账号(email)/密码 —— 凭据只在登录时内存用一次，token 过期后需重新输入。
 const GarminSettingsSchema = z.object({
-  email: z.string().default(''),
-  // 密码用 role('secret')：DSH 会加密存储、响应中脱敏（同 dsh-email）
-  password: z.string().role('secret').default(''),
   // 区域：true=中国区(garmin.cn)，false=国际区(garmin.com)
   isCn: z.boolean().default(true),
   status: z
@@ -66,8 +64,6 @@ const GarminSettingsSchema = z.object({
 })
 
 const INITIAL_SETTINGS = {
-  email: '',
-  password: '',
   isCn: true,
   status: 'disconnected' as const,
   displayName: '',
@@ -393,6 +389,10 @@ const fullSyncState: {
   total: number
   cursor?: string
   error?: string
+  /** 本次全量同步累计新增活动数 */
+  activitiesAdded?: number
+  /** 本次全量同步后活动总数 */
+  activitiesTotal?: number
 } = { status: 'idle', processed: 0, total: 0 }
 
 const handler = makeGarminSettingsHandler({
@@ -410,8 +410,10 @@ const handler = makeGarminSettingsHandler({
           try {
             const s = (rawCtx as unknown as { settings?: { replace?: (ns: string, v: unknown, rev?: number) => Promise<unknown> } })
               .settings
-            await s?.replace?.(GARMIN_SETTINGS_NS, value, expectedRevision)
-            logger.info('settings-web', `保存成功: ${JSON.stringify({ ...value, password: value.password ? '***' : '' })}`)
+            // 安全：任何来源的 save 都剥离 email/password，绝不落盘凭据
+            const { email, password, ...safe } = (value ?? {}) as Record<string, unknown> & { email?: string; password?: string }
+            await s?.replace?.(GARMIN_SETTINGS_NS, safe, expectedRevision)
+            logger.info('settings-web', `保存成功: ${JSON.stringify({ ...safe, password: safe.password ? '***' : '' })}`)
           } catch (e) {
             logger.error('settings-web', '保存失败', e)
             throw e
@@ -435,19 +437,18 @@ const handler = makeGarminSettingsHandler({
             } catch {
               // token 读取失败，忽略，继续走登录
             }
-            const saved = getSettingsValue()
-            const effEmail = email || saved.email || ''
-            const effPassword = password || saved.password || ''
+            // 安全：不读已保存的凭据——email/password 必须由本次请求提供（内存用一次，不落盘）
+            const effEmail = email || ''
+            const effPassword = password || ''
             if (!effEmail || !effPassword) {
-              return { ok: false, message: '请提供邮箱和密码，或先保存配置' }
+              return { ok: false, message: '请提供邮箱和密码' }
             }
-            // 登录成功后更新 settings 状态
+            // 登录成功后更新 settings 状态（不写 email/password 到 settings）
             const markConnected = async (displayName: string) => {
               try {
                 const s = (rawCtx as unknown as { settings?: { replace?: (ns: string, v: unknown, rev?: number) => Promise<unknown> } }).settings
                 await s?.replace?.(GARMIN_SETTINGS_NS, {
                   ...getSettingsValue(),
-                  email: effEmail,
                   status: 'connected',
                   displayName,
                   lastSyncAt: new Date().toISOString(),
@@ -457,9 +458,9 @@ const handler = makeGarminSettingsHandler({
                 logger.error('settings-web', '更新连接状态失败', e)
               }
             }
-            // 若有 mfaCode：完成 MFA
+            // 若有 mfaCode：完成 MFA（email 由本次请求传入，不从 mfa-state 读取）
             if (mfaCode) {
-              const tokens = await client.completeMfa(mfaCode)
+              const tokens = await client.completeMfa(mfaCode, effEmail)
               await markConnected(tokens.displayName ?? '')
               // 触发同步（异步，不阻塞连接返回）
               void syncOnConnect(garminStore, queries, getSettingsValue)
@@ -532,6 +533,8 @@ const handler = makeGarminSettingsHandler({
             fullSyncState.total = 0
             fullSyncState.cursor = fromDate
             fullSyncState.error = undefined
+            fullSyncState.activitiesAdded = 0
+            fullSyncState.activitiesTotal = 0
             void (async () => {
               try {
                 const result = await syncAllActivities(garminStore, queries, {
@@ -548,6 +551,9 @@ const handler = makeGarminSettingsHandler({
                 })
                 fullSyncState.status = result.synced ? 'done' : (result.error ? 'error' : 'done')
                 if (result.error) fullSyncState.error = result.error
+                // 记录本次全量同步实际新增活动数（供前端「同步完成」展示真实数字）
+                fullSyncState.activitiesAdded = result.activitiesAdded
+                fullSyncState.activitiesTotal = result.activitiesTotal
                 if (result.synced) {
                   try {
                     const storeData = await garminStore.read()

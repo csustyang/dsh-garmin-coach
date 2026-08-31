@@ -76,8 +76,6 @@ export function makeConnectHandler(
     email?: string
   }) => Promise<void>,
   store?: TokenStore,
-  /** 读取已保存的凭据（从 settings 用户层）*/
-  getSavedCredentials?: () => { email?: string; password?: string },
 ): (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => Promise<void> {
   return async (req, res) => {
     try {
@@ -119,29 +117,22 @@ export function makeConnectHandler(
           })
           return
         }
-        const tokens = await client.completeMfa(body.mfaCode)
+        const tokens = await client.completeMfa(body.mfaCode, body.email ?? '')
         await updateStatus({
           status: 'connected',
           displayName: tokens.displayName,
-          email: body.email ?? '',
         })
         sendJson(res, 200, { ok: true, displayName: tokens.displayName })
         return
       }
 
-      // connect
-      let email = body.email
-      let password = body.password
-      // 若未提供，用已保存的凭据
-      if ((!email || !password) && getSavedCredentials) {
-        const saved = getSavedCredentials()
-        email = email || saved.email || ''
-        password = password || saved.password || ''
-      }
+      // connect（安全：email/password 必须由本次请求提供，不读取已保存凭据、不落盘）
+      const email = body.email
+      const password = body.password
       if (!email || !password) {
         sendJson(res, 400, {
           ok: false,
-          message: '请提供邮箱和密码，或先保存配置',
+          message: '请提供邮箱和密码',
         })
         return
       }
@@ -158,7 +149,6 @@ export function makeConnectHandler(
       await updateStatus({
         status: 'connected',
         displayName: result.tokens.displayName,
-        email: body.email,
       })
       sendJson(res, 200, { ok: true, displayName: result.tokens.displayName })
     } catch (e) {
