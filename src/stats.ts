@@ -251,7 +251,8 @@ export async function dailyStats(
     avgSteps: avg(dailies.map((d) => d.steps)),
     avgRestingHr: avg(dailies.map((d) => d.restingHeartRate)),
     avgSleepHours: Math.round((avg(dailies.map((d) => d.sleepSeconds)) / 3600) * 10) / 10,
-    avgStress: avg(dailies.map((d) => d.stressAvg)),
+    // 过滤 stressAvg = -1（Garmin "未检测到压力"占位），不参与平均
+    avgStress: avg(dailies.filter((d) => d.stressAvg != null && d.stressAvg > 0).map((d) => d.stressAvg as number)),
     avgHrv: avg(dailies.map((d) => d.hrvWeeklyAvg)),
     lastHrvStatus: dailies[0]?.hrvStatus ?? '',
   }
@@ -412,22 +413,55 @@ export async function dashboardSummary(
   // 最近 30 天每日数据（用于趋势展示）
   const data30 = await store.read()
   const dailyRecent: Array<{
-    date: string; steps?: number; restingHeartRate?: number
-    stressAvg?: number; bodyBattery?: number; totalDistanceMeters?: number; activeKilocalories?: number
+    date: string
+    steps?: number; distanceMeters?: number; activeKilocalories?: number
+    restingHeartRate?: number; minHeartRate?: number; maxHeartRate?: number
+    bodyBattery?: number
+    stressAvg?: number; maxStressLevel?: number; stressQualifier?: string
+    highlyActiveSeconds?: number; activeSeconds?: number; sedentarySeconds?: number; floorsAscendedMeters?: number
+    sleepSeconds?: number; sleepScore?: number
+    hrvStatus?: string; hrvWeeklyAvg?: number
+    readinessScore?: number
   }> = []
   const today30 = new Date()
   for (let i = 89; i >= 0; i--) {
     const d = new Date(today30.getTime() - i * 24 * 3600 * 1000).toISOString().slice(0, 10)
     const dd = data30.daily[d]
-    if (dd && (dd.steps || dd.restingHeartRate || dd.stressAvg || dd.bodyBattery)) {
+    // 任一真实有效值就算"有数据的天"（只用明确无效的 -1 排除 stressAvg，避免过度过滤有活动强度但无步数的日）
+    const hasAny =
+      dd &&
+      (dd.steps ||
+        dd.restingHeartRate ||
+        dd.activeKilocalories ||
+        dd.highlyActiveSeconds ||
+        dd.activeSeconds ||
+        dd.floorsAscendedMeters ||
+        dd.minHeartRate ||
+        dd.maxHeartRate ||
+        (dd.stressAvg != null && dd.stressAvg > 0) ||
+        dd.bodyBattery != null)
+    if (hasAny) {
       dailyRecent.push({
         date: d,
         steps: dd.steps,
-        restingHeartRate: dd.restingHeartRate,
-        stressAvg: dd.stressAvg,
-        bodyBattery: dd.bodyBattery,
-        totalDistanceMeters: dd.distanceMeters,
+        distanceMeters: dd.distanceMeters,
         activeKilocalories: dd.activeKilocalories,
+        restingHeartRate: dd.restingHeartRate,
+        bodyBattery: dd.bodyBattery,
+        stressAvg: dd.stressAvg,
+        maxStressLevel: dd.maxStressLevel,
+        stressQualifier: dd.stressQualifier,
+        highlyActiveSeconds: dd.highlyActiveSeconds,
+        activeSeconds: dd.activeSeconds,
+        sedentarySeconds: dd.sedentarySeconds,
+        minHeartRate: dd.minHeartRate,
+        maxHeartRate: dd.maxHeartRate,
+        floorsAscendedMeters: dd.floorsAscendedMeters,
+        sleepSeconds: dd.sleepSeconds,
+        sleepScore: dd.sleepScore,
+        hrvStatus: dd.hrvStatus,
+        hrvWeeklyAvg: dd.hrvWeeklyAvg,
+        readinessScore: dd.readinessScore,
       })
     }
   }
@@ -1325,9 +1359,22 @@ export async function reportStats(
     const ds = cur.toISOString().slice(0, 10)
     const dd = daily[ds]
     if (dd) {
-      healthDates.push(ds)
+      // 任一健康字段有真实有效值才算"有数据的天"（stressAvg > 0 排除 Garmin UNKNOWN 占位）
+      const hasAny =
+        dd.steps ||
+        dd.restingHeartRate ||
+        dd.activeKilocalories ||
+        dd.highlyActiveSeconds ||
+        dd.activeSeconds ||
+        dd.floorsAscendedMeters ||
+        dd.minHeartRate ||
+        dd.maxHeartRate ||
+        (dd.stressAvg != null && dd.stressAvg > 0) ||
+        dd.bodyBattery != null
+      if (hasAny) healthDates.push(ds)
       if (dd.steps) { stepsSum += dd.steps; stepsN++ }
       if (dd.restingHeartRate) { rhrSum += dd.restingHeartRate; rhrN++ }
+      // 压力只统计 stressAvg > 0 的（过滤 -1 / UNKNOWN / 0）
       if (dd.stressAvg && dd.stressAvg > 0) { stressSum += dd.stressAvg; stressN++ }
       if (dd.bodyBattery != null) { bbSum += dd.bodyBattery; bbN++ }
     }

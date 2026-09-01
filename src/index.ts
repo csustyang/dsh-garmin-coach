@@ -21,7 +21,7 @@ import { makeQueries } from './api/queries.js'
 import type { GarminQueries } from './api/queries.js'
 import { defineGarminTools } from './tools/register.js'
 import { defineStatsTools } from './tools/stats-tools.js'
-import { GarminStoreFile } from './storage.js'
+import { GarminStoreFile, SYNC_DAYS_BACK_MAX, FULL_SYNC_DEFAULT_DAYS } from './storage.js'
 import type { SyncResult } from './sync.js'
 import { installConnectRoute, makeConnectHandler } from './connect.js'
 import {
@@ -57,7 +57,11 @@ const GarminSettingsSchema = z.object({
     .default('disconnected'),
   displayName: z.string().default(''),
   lastSyncAt: z.string().default(''),
-  syncDaysBack: z.number().default(14),
+  // 注意：这里不带 `.max(30)` —— 历史脏数据（用户在旧版本手动设的 90/365）会被 schema 拒绝，
+  // 导致整个 settings namespace 注册失败，所有保存操作静默失效（settings DB 永远显示 fallback 默认值）。
+  // 实际拉取天数的硬上限在 src/sync.ts L3 + src/index.ts L2 两层截断保证。
+  // 默认值与上限都从 storage.ts 的 SYNC_DAYS_BACK_MAX 导出常量读取（单一来源）
+  syncDaysBack: z.number().min(1).default(SYNC_DAYS_BACK_MAX),
   /** 全量同步起始日期（YYYY-MM-DD）*/
   fullSyncFrom: z.string().default(''),
   // 说明：只支持手动同步，不配置自动同步频率（防 Garmin 行为指纹检测）
@@ -68,7 +72,7 @@ const INITIAL_SETTINGS = {
   status: 'disconnected' as const,
   displayName: '',
   lastSyncAt: '',
-  syncDaysBack: 14,
+  syncDaysBack: SYNC_DAYS_BACK_MAX,
 }
 
 // ────────────────────────────────────────────────────────────────────────
@@ -285,7 +289,9 @@ async function syncOnConnect(
   if (!store || !queries) return undefined
   try {
     const settings = getSettings()
-    const days = settings.syncDaysBack ?? 14
+    // 强校验：超出 30 天强制截断（防用户改 settings 文件绕过 schema）
+    const rawDays = settings.syncDaysBack ?? SYNC_DAYS_BACK_MAX
+    const days = Math.min(Math.max(1, rawDays), SYNC_DAYS_BACK_MAX)
     const { syncGarmin } = await import('./sync.js')
     const result = await syncGarmin({
       days,
@@ -490,7 +496,9 @@ const handler = makeGarminSettingsHandler({
         sync: async () => {
           try {
             const settings = getSettingsValue()
-            const days = settings.syncDaysBack ?? 14
+            // 强校验：超出 30 天强制截断（防拉爆 Garmin）
+            const rawDays = settings.syncDaysBack ?? SYNC_DAYS_BACK_MAX
+            const days = Math.min(Math.max(1, rawDays), SYNC_DAYS_BACK_MAX)
             logger.info('settings-web', `手动同步触发（${days} 天）`)
             const result = await syncOnConnect(garminStore, queries, getSettingsValue)
             // 更新 settings 的 lastSyncAt（卡片/看板显示用）
@@ -524,7 +532,13 @@ const handler = makeGarminSettingsHandler({
               return { ok: true, started: true, message: '全量同步已在运行中', progress: fullSyncState }
             }
             const settings = getSettingsValue()
-            const fromDate = from || settings.fullSyncFrom || '2022-01-01'
+            // 默认起点：距今 FULL_SYNC_DEFAULT_DAYS 天前（含今天）—— 防止新用户点全量同步时直接拉 4+ 年把 Garmin 拉爆。
+            // 用户在 UI 输入或 settings.fullSyncFrom 设置的更早日期才生效（用户明确行为优先）。
+            const today0 = new Date()
+            const defaultFromDate = new Date(today0)
+            defaultFromDate.setDate(today0.getDate() - FULL_SYNC_DEFAULT_DAYS + 1)
+            const defaultFrom = defaultFromDate.toISOString().slice(0, 10)
+            const fromDate = from || settings.fullSyncFrom || defaultFrom
             logger.info('settings-web', '全量同步触发（从 ' + fromDate + '）')
             const { syncAllActivities } = await import('./sync.js')
             // 后台异步执行：立即返回，进度由 syncAllProgress 轮询

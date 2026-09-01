@@ -37,11 +37,6 @@ export declare function makeConnectHandler(getClient: () => GarminClient | null,
     status?: string;
     displayName?: string;
     email?: string;
-}) => Promise<void>, store?: TokenStore, 
-/** 读取已保存的凭据（从 settings 用户层）*/
-getSavedCredentials?: () => {
-    email?: string;
-    password?: string;
-}): (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => Promise<void>;
+}) => Promise<void>, store?: TokenStore): (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => Promise<void>;
 /** 在 ctx.webServer 上注册 /garmin-connect route */
 export declare function installConnectRoute(ctx: unknown, handler: ReturnType<typeof makeConnectHandler>): void;

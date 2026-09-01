@@ -1,6 +1,7 @@
 # 更新日志
 
-## 未发布
+## 0.2.1（2026-09-01）— 健康数据过滤 + 心率修正 + 默认天数保护
+
 
 ### 🔐 安全
 - **禁止保存账号/密码到本地文件**：settings 不再持久化 email/password（移除 schema 字段 + 保存时剥离 + 前端不写回）；MFA 状态文件（mfa-state.json）不再写入 email/password，验证码提交时由请求方把 email 传入
@@ -8,6 +9,27 @@
 
 ### 🐛 修复
 - 全量同步完成提示展示真实新增活动数：「已处理 X/Y 个窗口，新增活动 N 条（共 M 条）」，不再只显示窗口数——之前全量同步消息不显示新增数，用户容易误以为同步了 0 条
+- 备份位置调整：增量同步不再备份（按 activityId 去重 upsert 天然幂等），仅全量同步开始前备份 `garmin.json` —— 增量同步每次都备份既浪费 IO、又会留下大量 `.bak.*` 孤儿文件；全量同步覆盖大量数据时存在中间态风险，必须保留备份安全网
+- **同步回看天数加 30 天硬上限**：健康数据走单日端点（每天 1 次调用），窗口过大（如 syncDaysBack=90/365）会拉爆 Garmin 服务器。新增两道防御：① `index.ts` 调用点 `Math.min/max` 截断（防 settings 文件被绕过 schema 修改）；② `syncGarmin` 入口处再截断一次（防外部直接调用），截断时输出 warn 日志。**不再在 schema 上加 `.max(30)`** —— 历史脏数据（如用户旧版手动设的 90）会被 schema 拒绝、导致整个 settings namespace 注册失败、所有保存操作静默失效（DSH 永远显示 fallback 默认值、revision 一直为 0）。实际拉取天数的硬上限只靠代码层保证。默认 `syncDaysBack` 从 14 → 30
+- **全量同步默认起点改 90 天前**：新用户首次点全量同步不再默认从 `2022-01-01` 拉 4+ 年（≈13 窗口）—— 改为距今 90 天（≈1-2 窗口）。用户主动在 UI 输入更早日期或 `settings.fullSyncFrom` 设置才会拉历史。立即同步的 `syncDaysBack` 上限仍是 30 天，两者分开管
+- **前端 UI（`lib/client.js`）同步改造**：输入框 `max="90" → 30`、标签 "1-90 → 1-30"、按钮 fallback `90 → 30`、`EMPTY.syncDaysBack` 默认14 → 30、全量同步默认起点 2022-01-01 → 距今 90 天前。所有前端 magic number 都改为引用前端内的 `SYNC_DAYS_BACK_MAX = 30` 常量（与 `src/storage.ts` 保持一致）
+- **过滤空 daily payload**：旧版 `syncGarmin` 不管 API 返回 200+空对象（账号当天没设备记录）都会写一条"全是 undefined"的 daily 入库，污染"健康数据 N 天"统计。新增 `isEmptyDailyPayload()` 判断，daily 全字段 undefined 时不入库。新增 `scripts/clean-empty-dailies.ts` 一次性清理工具给老用户用
+- **压力值 -1 显示成 `—`**：Garmin `stressAvg = -1` 是"未检测到压力"的合法占位，跟 null/undefined 一样没数据。前端表格之前用 `!= null` 判断，会把 -1 原样显示成 "-1"；现在改为 `!= null && !== -1`，正确显示成 `—`。同步修了 `lib/client.js` 健康趋势压力数组（KPI 压力平均数）和 `src/stats.ts` `avgStress` 计算，确保 -1 不参与压力均值
+- **`stressAvg=-1` 配套字段 `stressQualifier=UNKNOWN` 的语义澄清**：Garmin 后端约定 `stressQualifier='UNKNOWN'` 时 `averageStressLevel=-1` 是"未检测到压力"占位。`stats.ts` 之前的判断用 `dd.stressAvg` truthy 检查，把 -1 当有效值算进 dailyRecent 和压力均值。现已改为 `stressAvg > 0` 才算有效，并补全了 dailyRecent 的"有数据的天"判断（参考活动强度字段 activeKilocalories/highlyActiveSeconds 等，避免漏掉只有活动强度没步数的日子）。`stressAvg=-1` 的记录**不清理**，保留作为"该天压力未检测到"的事实证据
+- **健康趋势表行位详情 + 列编辑**：仿照最近活动，每行行尾加 📊 详情按钮，点击打开页面中间浮层，按"活动量 / 心率 / 压力 / Body Battery / 睡眠 / HRV / 训练准备度"7 个分组展示当日的全部健康指标（自动过滤掉空字段）；表头右上角加 ✏️ 编辑按钮，可勾选 14 个候选列（步数/静息心率/压力/Body Battery/距离/活动消耗/最低心率/最高心率/平均心率/睡眠时长/睡眠分/HRV 状态/HRV 周均/训练准备度），默认显示 4 个核心指标（步数/静息心率/压力/Body Battery）。浮层和编辑面板都支持 Esc / 点击遮罩 / ✕ 三种关闭方式
+- **健康详情浮层数据完整性修复**：`stats.ts` 的 `dailyRecent` 之前只推 7 个字段（steps/restingHeartRate/stressAvg/bodyBattery/totalDistanceMeters/activeKilocalories + date），导致详情浮层大部分组（心率细分/睡眠/HRV/训练准备度）永远空。现在推全 20 个字段，与 `DailyRecord` 类型一致
+- **`fmtTime(0)` 修正确认显示 `0`**：之前 `if (!sec) return '—'` 把 `0`（"用户没动"）也当无数据。现在 `0` 显示成 `0`，只有 `null/undefined` 显示成 `—`。所有调用点（活动时长/睡眠/久坐等）的 0 值都能正确显示
+- **`stressQualifier='UNKNOWN'` 显示成 `—`**：跟 `stressAvg=-1` 一样，Garmin 的 `UNKNOWN` 状态表示"未检测到压力"，对用户来说等同于无数据。详情浮层 get 函数 + 浮层过滤器都加了 `!== 'UNKNOWN'` 判断，未检测到的日子不再展示这个字段
+- **过滤"无意义 daily"（整天没戴表）**：之前 `isEmptyDailyPayload` 只检查9 个字段（是否 undefined），但 Garmin 会返回 `steps=null + sedentary=86400 + stressAvg=-1 + 其他全是0/空` 这种"整天没戴表"的脏数据——之前能穿过过滤入库。现在加强检查：所有"真实健康指标"（steps/activeKilocalories/restingHeartRate/bodyBattery/stressAvg>0/HRV/睡眠/训练准备度 等）必须任一有真值才入库。`stressAvg <= 0`、`stressQualifier === 'UNKNOWN'` 都算无效占位。`clean-empty-dailies.ts` 脚本同步升级到新规则，可清理历史脏数据
+- **移除错误的"平均心率"字段**：Garmin 没直接给"全天平均心率"。旧代码用 `minAvgHeartRate`（最低活动段平均心率）当"平均心率"展示，会误导用户（看起来像全天均值实际只是某个段）。完全移除 `avgHeartRate` 字段（storage 类型 + stats dailyRecent + 前端浮层/列编辑/列渲染）。详情浮层心率组从 4 项减为 3 项（静息/最低/最高），列编辑候选从 14 列减为 13 列
+- **心率假数据过滤**：`minHeartRate=75, maxHeartRate=75, restingHeartRate=null, steps=null, sedentary=86400` 这种数据是"表整天没戴"——Garmin 后端填默认静息心率 75 作为占位。真采样的心率一定有波动（min ≠ max）。`isEmptyDailyPayload` 和 `clean-empty-dailies.ts` 都改为：只有 `minHeartRate >0 && maxHeartRate >0 && minHeartRate !== maxHeartRate` 才算心率"有真值"。能识别 2 条历史脏数据（07-19、08-16）
+- **"整天没动"判定升级**：`sedentarySeconds=86400` 本身不一定是无意义（可能含睡眠时间）。改为看 `activeSeconds=0 && highlyActiveSeconds=0 && activeKilocalories=0 && steps=0/null`——这才是真"整天没动/没戴表"。这种天即使有 `bodyBattery`（手表自算字段）也不算有意义，因为它不能反映用户健康状态。能识别 8 条历史脏数据（之前只有 2 条）
+- **健康表默认列调整**：把 `压力` 和 `Body Battery` 从默认列里去掉，改成 `最低心率` + `最高心率`（用户日常看心率范围比压力/电池更实用）。`HEALTH_DEFAULT_COLS` 从 `['steps', 'restingHeartRate', 'stressAvg', 'bodyBattery']` 改为 `['steps', 'restingHeartRate', 'minHeartRate', 'maxHeartRate']`。`HEALTH_ALL_COLS` 编辑面板里把心率三连（静息/最低/最高）放一起
+- **最近活动编辑按钮改到表头右上角**：跟健康趋势的 ✏️ 布局一致——每行不再带 ✏️ 按钮（每行只需 📊 详情），✏️ 编辑按钮挪到 h3 旁（`📅 最近活动 ✏️`），全表共用同一编辑面板。删除表头 ✏️ 列 + 每行 ✏️ 按钮列，`colSpanTotal` 从 `colMeta.length + 1` 改为 `colMeta.length`
+- **健康趋势表按日期倒序**：之前后端按 i=89→0 生成 dailyRecent 是升序（最远的日期在最上面），跟用户期望的"最新一天在最上面"相反。前端按 `date` desc 排序后再渲染表体，总数 / 健康 KPI / 滚动加载判断不变
+- **健康趋势表头滚动时固定**：之前表头 `<thead>` 在滚动容器内，向下滑动时跟着消失，看不到列名。CSS 用 `position: sticky; top: 0` + `background: var(--dsw-alias-bg-layer-1)` + `z-index: 1` 让 `<th>` 滚动时吸顶
+- **常量提取**：`FULL_SYNC_DEFAULT_DAYS = 90` 提到 `src/storage.ts` 作为导出常量（与 `SYNC_DAYS_BACK_MAX = 30` 风格统一），`src/index.ts` 全量同步 handler 改为引用常量，不再内联 magic number
+- **清理未追踪文件 + 忽略 vision-toolkit**：删除 `scripts/clean-empty-dailies.ts`（一次性清理历史脏数据脚本，任务已完成）和 `scripts/clear-synced-data.ts`（一次性清空脚本，使用场景过于个性化）；`.gitignore` 加 `.dsh-vision-toolkit/` 忽略 DSH vision-toolkit 本地缓存
 
 ### ✨ 新功能
 - 健康趋势（步数/静息心率/压力/Body Battery）改为和跑量一样的滚动加载：可下拉增量查看更多天数（不再只显示最近 14 天）
@@ -17,6 +39,10 @@
 
 ### 📚 文档
 - README 顶部新增「⚠️ 免责声明」：明确非官方逆向性质、责任免除与「按现状」声明
+
+
+
+## 未发布
 
 ## 0.2.0（2026-08-30）— 看板大升级：运动分组展示 + 详情浮层 + 全量同步
 

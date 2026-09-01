@@ -42,6 +42,16 @@ export declare function toActivityRecord(raw: unknown): ActivityRecord | null;
 /**
  * 把 Garmin 每日健康原始载荷转成 DailyRecord。
  */
+/**
+ * 判断 daily 原始载荷是否是"无意义响应"（API 200 但当天没有真实健康数据）。
+ * 用于过滤"整天没戴表 / 表完全没工作 / 静息整天 / 啥都没记录"等情况——
+ * 这些数据入库只会污染统计（虚增天数、拖累均值），不入库。
+ *
+ * 判定规则：所有可能的"真实健康指标"都是空/null/0/-1 时，才算无意义。
+ * 例外：activeKilocalories/highlyActiveSeconds/activeSeconds/floorsAscendedMeters
+ *       这几个即使=0 也算"无意义"，因为"整天0活动"和"没记录"对用户没区别。
+ */
+export declare function isEmptyDailyPayload(raw: unknown): boolean;
 export declare function toDailyRecord(date: string, raw: unknown): DailyRecord;
 /**
  * 执行一次同步。

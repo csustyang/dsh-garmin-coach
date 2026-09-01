@@ -10,8 +10,6 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 export interface GarminSettingsValue {
-    email?: string;
-    password?: string;
     isCn?: boolean;
     status?: string;
     displayName?: string;

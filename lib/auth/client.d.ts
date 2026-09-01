@@ -46,7 +46,7 @@ export declare class GarminClient {
         kind: 'mfa_required';
         method: string;
     }>;
-    completeMfa(code: string): Promise<GarminCachedTokens>;
+    completeMfa(code: string, email?: string): Promise<GarminCachedTokens>;
     private exchangeTicket;
     private exchangeDiToken;
     private refreshDiToken;

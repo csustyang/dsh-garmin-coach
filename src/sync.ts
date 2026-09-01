@@ -14,7 +14,7 @@ import type {
   DailyRecord,
   GarminStoreFile,
 } from './storage.js'
-import { dataFilePath } from './storage.js'
+import { dataFilePath, SYNC_DAYS_BACK_MAX } from './storage.js'
 import { logger } from './logger.js'
 
 /** 支持的常见运动类型（Garmin typeKey）*/
@@ -141,6 +141,68 @@ export function toActivityRecord(raw: unknown): ActivityRecord | null {
 /**
  * 把 Garmin 每日健康原始载荷转成 DailyRecord。
  */
+/**
+ * 判断 daily 原始载荷是否是"无意义响应"（API 200 但当天没有真实健康数据）。
+ * 用于过滤"整天没戴表 / 表完全没工作 / 静息整天 / 啥都没记录"等情况——
+ * 这些数据入库只会污染统计（虚增天数、拖累均值），不入库。
+ *
+ * 判定规则：所有可能的"真实健康指标"都是空/null/0/-1 时，才算无意义。
+ * 例外：activeKilocalories/highlyActiveSeconds/activeSeconds/floorsAscendedMeters
+ *       这几个即使=0 也算"无意义"，因为"整天0活动"和"没记录"对用户没区别。
+ */
+export function isEmptyDailyPayload(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return true
+  const s = raw as Record<string, unknown>
+  // 各个字段"有意义值"的判定函数
+  const num = (v: unknown) => typeof v === 'number' && v > 0
+  const truthy = (v: unknown) => v != null && v !== '' && v !== false
+  // 心率真采样：min ≠ max（真采样的心率一定有波动，min=75 max=75 是 Garmin 默认值/未采样）
+  const hasRealHeartRate =
+    typeof s.minHeartRate === 'number' &&
+    typeof s.maxHeartRate === 'number' &&
+    s.minHeartRate > 0 &&
+    s.maxHeartRate > 0 &&
+    s.minHeartRate !== s.maxHeartRate
+  // 整天没动 = activeSeconds=0 && highlyActiveSeconds=0 && activeKilocalories=0
+  // 这种情况下 bodyBattery 等手表自算字段不能反映用户健康状态
+  const allDayInactive =
+    (s.activeSeconds === 0 || s.activeSeconds == null) &&
+    (s.highlyActiveSeconds === 0 || s.highlyActiveSeconds == null) &&
+    (s.activeKilocalories === 0 || s.activeKilocalories == null) &&
+    !num(s.totalSteps)  // 步数也是 0/null（确认没动）
+  // 整天没动时，要求"非手表自算"的健康指标至少一个有意义
+  if (allDayInactive) {
+    return !(
+      hasRealHeartRate ||
+      num(s.averageStressLevel) ||
+      num(s.maxStressLevel) ||
+      num(s.restingHeartRate) ||
+      truthy(s.dailySleepDTO) ||
+      truthy(s.hrv) ||
+      truthy(s.readiness) ||
+      truthy(s.stressQualifier && s.stressQualifier !== 'UNKNOWN')
+    )
+  }
+  // 任一字段有"真值" → 不算空
+  return !(
+    num(s.totalSteps) ||
+    num(s.totalDistanceMeters) ||
+    num(s.activeKilocalories) ||
+    num(s.highlyActiveSeconds) ||
+    num(s.activeSeconds) ||
+    num(s.floorsAscendedInMeters) ||
+    num(s.restingHeartRate) ||
+    num(s.bodyBatteryMostRecentValue) ||
+    num(s.averageStressLevel) ||      // > 0 才算（-1/0 是 UNKNOWN 占位）
+    num(s.maxStressLevel) ||
+    hasRealHeartRate ||               // 心率必须 min ≠ max 才算真采样
+    truthy(s.dailySleepDTO) ||
+    truthy(s.hrv) ||
+    truthy(s.readiness) ||
+    truthy(s.stressQualifier && s.stressQualifier !== 'UNKNOWN')
+  )
+}
+
 export function toDailyRecord(date: string, raw: unknown): DailyRecord {
   const s = raw as Record<string, unknown>
   // CN daily 健康数据字段在顶层（不是 userSummary 里）
@@ -167,10 +229,10 @@ export function toDailyRecord(date: string, raw: unknown): DailyRecord {
     highlyActiveSeconds: s.highlyActiveSeconds as number | undefined,
     activeSeconds: s.activeSeconds as number | undefined,
     sedentarySeconds: s.sedentarySeconds as number | undefined,
-    // 心率
+    // 心率（不存 avgHeartRate：Garmin 没直接给全天平均，旧代码用 minAvgHeartRate 是错的——
+    // 它是"最低活动段"平均，不是全天均值）
     minHeartRate: s.minHeartRate as number | undefined,
     maxHeartRate: s.maxHeartRate as number | undefined,
-    avgHeartRate: s.minAvgHeartRate as number | undefined,  // CN 用 minAvgHeartRate 作平均
     // 楼层
     floorsAscendedMeters: s.floorsAscendedInMeters as number | undefined,
     // 睡眠
@@ -196,18 +258,17 @@ export function toDailyRecord(date: string, raw: unknown): DailyRecord {
  *  5. 更新 lastSyncAt
  */
 export async function syncGarmin(opts: SyncOptions): Promise<SyncResult> {
-  const { days = 14, sportFilter, store, queries } = opts
-  // 安全网：同步前备份 garmin.json（成功删备份，失败恢复）
-  let backupPath = ''
-  try {
-    const dataPath = dataFilePath()
-    backupPath = dataPath + '.bak.' + Date.now()
-    const { copyFile } = await import('node:fs/promises')
-    await copyFile(dataPath, backupPath)
-    logger.info('sync', '已备份数据到 ' + backupPath)
-  } catch (e) {
-    logger.warn('sync', '备份失败（继续同步）: ' + (e as Error).message)
+  const { sportFilter, store, queries } = opts
+  // 防御性截断（L3）：days 超出硬上限（SYNC_DAYS_BACK_MAX=30）一律夹到上限并 warn，
+  // 防止 settings 文件被改坏、或外部绕过 schema 时把 Garmin 服务器拉爆。
+  // （活动端点支持区间一次拉取，健康端点每天一次调用，是 N 次循环 —— N 必须有上限）
+  const rawDays = opts.days ?? SYNC_DAYS_BACK_MAX
+  const days = Math.min(Math.max(1, rawDays), SYNC_DAYS_BACK_MAX)
+  if (rawDays !== days) {
+    logger.warn('sync', `days=${rawDays} 超出上限 ${SYNC_DAYS_BACK_MAX}，已截断为 ${days}`)
   }
+  // 增量同步：按 activityId 去重 upsert，天然幂等，无需备份。
+  // 全量同步才需要备份（覆盖大量数据时存在中间态风险）。
   try {
     const endDate = new Date()
     const to = endDate.toISOString().slice(0, 10)
@@ -267,9 +328,12 @@ export async function syncGarmin(opts: SyncOptions): Promise<SyncResult> {
       if (dateStr > to) break
       try {
         const dailyRaw = await queries.daily(dateStr)
-        dailies.push(toDailyRecord(dateStr, dailyRaw))
+        // 过滤空 payload（API 200 但当天没设备数据）—— 避免脏数据入库污染健康统计
+        if (!isEmptyDailyPayload(dailyRaw)) {
+          dailies.push(toDailyRecord(dateStr, dailyRaw))
+        }
       } catch {
-        // 某天无数据，跳过
+        // 某天 API 报错，跳过
       }
     }
     if (dailies.length > 0) {
@@ -284,17 +348,6 @@ export async function syncGarmin(opts: SyncOptions): Promise<SyncResult> {
     const data = await store.read()
     const sportsSeen = [...new Set(filtered.map((a) => a.sport))]
 
-    // 同步成功：清理备份
-    if (backupPath) {
-      try {
-        const { unlink } = await import('node:fs/promises')
-        await unlink(backupPath)
-        logger.info('sync', '同步成功，已清理备份 ' + backupPath)
-      } catch (e) {
-        logger.error('sync', '清理备份失败: ' + (e as Error).message)
-      }
-    }
-
     return {
       synced: true,
       activitiesAdded: added,
@@ -304,18 +357,6 @@ export async function syncGarmin(opts: SyncOptions): Promise<SyncResult> {
     }
   } catch (e) {
     logger.error('sync', '同步失败', e)
-    // 同步失败：恢复备份（防止数据损坏）
-    if (backupPath) {
-      try {
-        const { copyFile, unlink } = await import('node:fs/promises')
-        const dataPath = dataFilePath()
-        await copyFile(backupPath, dataPath)
-        await unlink(backupPath)
-        logger.error('sync', '同步失败，已从备份恢复 ' + backupPath)
-      } catch (be) {
-        logger.error('sync', '恢复备份失败: ' + (be as Error).message)
-      }
-    }
     return {
       synced: false,
       activitiesAdded: 0,
@@ -383,6 +424,47 @@ export async function syncAllActivities(
     setTimeout(res, ms)
   })
 
+  // 安全网：全量同步前备份 garmin.json（成功删备份，失败/异常恢复）
+  // 增量同步按 activityId 去重 upsert，无需备份；全量覆盖大量数据才有中间态风险。
+  let backupPath = ''
+  if (!opts.resume) {
+    try {
+      const dataPath = dataFilePath()
+      backupPath = dataPath + '.bak.' + Date.now()
+      const { copyFile } = await import('node:fs/promises')
+      await copyFile(dataPath, backupPath)
+      logger.info('syncAll', '已备份数据到 ' + backupPath)
+    } catch (e) {
+      logger.warn('syncAll', '备份失败（继续同步）: ' + (e as Error).message)
+    }
+  }
+
+  const cleanupBackup = async () => {
+    if (backupPath) {
+      try {
+        const { unlink } = await import('node:fs/promises')
+        await unlink(backupPath)
+        logger.info('syncAll', '同步成功，已清理备份 ' + backupPath)
+      } catch (e) {
+        logger.error('syncAll', '清理备份失败: ' + (e as Error).message)
+      }
+    }
+  }
+
+  const restoreBackup = async () => {
+    if (backupPath) {
+      try {
+        const { copyFile, unlink } = await import('node:fs/promises')
+        const dataPath = dataFilePath()
+        await copyFile(backupPath, dataPath)
+        await unlink(backupPath)
+        logger.error('syncAll', '同步失败，已从备份恢复 ' + backupPath)
+      } catch (be) {
+        logger.error('syncAll', '恢复备份失败: ' + (be as Error).message)
+      }
+    }
+  }
+
   try {
     for (let w = 0; w < totalWindows; w++) {
       if (curDate.getTime() > today.getTime()) break
@@ -407,6 +489,7 @@ export async function syncAllActivities(
       } catch (e) {
         if (String((e as Error).message).includes('429')) {
           await store.saveSyncCursor?.(lastCursor)
+          await cleanupBackup()
           if (opts.onProgress) opts.onProgress({ processed: w, total: totalWindows, status: 'paused', cursor: lastCursor, error: '触发 Garmin 429 限流，已保存进度，请 30 分钟后从断点续拉' })
           return {
             synced: false, activitiesAdded: added,
@@ -431,9 +514,11 @@ export async function syncAllActivities(
 
     await store.saveSyncCursor?.('')
     const total = Object.keys((await store.read()).activities).length
+    await cleanupBackup()
     if (opts.onProgress) opts.onProgress({ processed: totalWindows, total: totalWindows, status: 'done', cursor: lastCursor })
     return { synced: true, activitiesAdded: added, activitiesTotal: total, processedWindows: processed, totalWindows, cursor: lastCursor }
   } catch (e) {
+    await restoreBackup()
     if (opts.onProgress) opts.onProgress({ processed: processed, total: totalWindows, status: 'error', cursor: lastCursor, error: (e as Error).message })
     return { synced: false, activitiesAdded: added, activitiesTotal: 0, processedWindows: processed, totalWindows, cursor: lastCursor, error: (e as Error).message }
   }

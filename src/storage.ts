@@ -10,7 +10,7 @@
  *   "activities": { "<activityId>": ActivityRecord },   // 按 id 去重
  *   "daily": { "<date>": DailyRecord },                 // 每日健康
  *   "sportFilter": ["running", "cycling", ...],         // 运动类型筛选
- *   "syncDaysBack": 14
+ *   "syncDaysBack": 30
  * }
  *
  * 设计：
@@ -109,7 +109,7 @@ export interface DailyRecord {
   sedentarySeconds?: number
   minHeartRate?: number
   maxHeartRate?: number
-  avgHeartRate?: number
+  // avgHeartRate 已移除：Garmin 没直接给"全天平均心率"，旧代码用 minAvgHeartRate 是错的
   floorsAscendedMeters?: number
   sleepSeconds?: number
   sleepScore?: number
@@ -130,13 +130,19 @@ export interface GarminStore {
   fullSyncCursor?: string
 }
 
+/** 同步回看天数的硬上限（防 Garmin 服务器过载）*/
+export const SYNC_DAYS_BACK_MAX = 30
+
+/** 全量同步默认起点：距今天数（防新用户点全量同步时直接拉 4+ 年把 Garmin 拉爆）*/
+export const FULL_SYNC_DEFAULT_DAYS = 90
+
 const DEFAULT_STORE: GarminStore = {
   version: 1,
   lastSyncAt: '',
   activities: {},
   daily: {},
   sportFilter: [],
-  syncDaysBack: 14,
+  syncDaysBack: SYNC_DAYS_BACK_MAX,
   fullSyncCursor: '',
 }
 

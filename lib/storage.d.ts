@@ -10,7 +10,7 @@
  *   "activities": { "<activityId>": ActivityRecord },   // 按 id 去重
  *   "daily": { "<date>": DailyRecord },                 // 每日健康
  *   "sportFilter": ["running", "cycling", ...],         // 运动类型筛选
- *   "syncDaysBack": 14
+ *   "syncDaysBack": 30
  * }
  *
  * 设计：
@@ -102,7 +102,6 @@ export interface DailyRecord {
     sedentarySeconds?: number;
     minHeartRate?: number;
     maxHeartRate?: number;
-    avgHeartRate?: number;
     floorsAscendedMeters?: number;
     sleepSeconds?: number;
     sleepScore?: number;
@@ -121,6 +120,10 @@ export interface GarminStore {
     /** 全量同步断点游标（上次拉到的起始日期，空=无进行中）*/
     fullSyncCursor?: string;
 }
+/** 同步回看天数的硬上限（防 Garmin 服务器过载）*/
+export declare const SYNC_DAYS_BACK_MAX = 30;
+/** 全量同步默认起点：距今天数（防新用户点全量同步时直接拉 4+ 年把 Garmin 拉爆）*/
+export declare const FULL_SYNC_DEFAULT_DAYS = 90;
 export interface GarminStoreOptions {
     /** 数据目录；缺省用 <cwd>/data */
     dataDir?: string;

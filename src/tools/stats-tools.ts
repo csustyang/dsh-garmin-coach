@@ -28,7 +28,8 @@ export function defineStatsTools(
       description:
         '从 Garmin 拉取最近 N 天活动与每日健康数据并落库（按 activityId 去重，重复同步不会产生重复数据）。返回新增数量与运动类型。',
       parameters: {
-        days: { type: 'integer', description: '拉取最近多少天（默认 14）' },
+        // 注意：上限 30 是 src/sync.ts L3 + src/index.ts L2 两层硬截断保证；这里只声明建议范围给 LLM
+        days: { type: 'integer', description: '拉取最近多少天（建议 1-30，默认 30）' },
         sport: { type: 'string', description: '只同步指定运动类型，如 running / cycling / swimming / hiking' },
       },
       execute: async (args) => {
@@ -40,7 +41,7 @@ export function defineStatsTools(
         const client = new GarminClient({ store: FileTokenStore.default() })
         const queries = makeQueries(client)
         return syncGarmin({
-          days: days ?? 14,
+          days: days ?? 30,
           sportFilter: sport ? [sport] : undefined,
           store,
           queries,

@@ -29,6 +29,9 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
+# DSH vision-toolkit 工具的本地缓存（不属于这个项目代码）
+.dsh-vision-toolkit/
+
 # 用户数据（绝对不要提交）
 # 用户数据存 ~/data/（DSH Home），开发时存 ./data/
 # 即便如此，仓库里也不放任何真实数据
