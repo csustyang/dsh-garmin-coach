@@ -1,5 +1,30 @@
 # 更新日志
 
+## 0.2.2（2026-09-05）— sleep 端点合并 + 写锁并发安全 + 未连接短路
+
+### 🐛 修复
+- **睡眠时长偏差 ~26 分钟**：`syncGarmin` 现在并发拉 `daily + sleep` 两个端点，并通过 `mergeDailyRaws` 让 sleep 端点的 `dailySleepDTO.sleepTimeSeconds` **覆盖** daily 端点顶层的 `sleepingSeconds`。原因：daily 顶层 sleepingSeconds 包含 ~15-30 分钟的"躺床缓冲期"（非睡眠时间），sleep 端点的 sleepTimeSeconds 才是"实际睡眠"——手表 App 显示的值。之前 `sleepSeconds` 兜底用了 daily 顶层的宽口径值，导致睡眠时长比手表显示多出 ~26 分钟
+- **并发 mutate 撞车导致数据丢失 / ENOENT**：sync 主循环是 `await` 串行的，但训练补全是 fire-and-forget 的 `upsertDaily`，会和主循环的 `mutateMeta` 同时写 tmp 文件然后 `rename`，第二个 rename 经常碰到第一个还没落盘的中间态 → 偶发 ENOENT / 数据丢失。`GarminStoreFile` 新增 `writeLock`（meta/activities 共享一把锁），所有原子写操作都走 `withLock()` 串行化
+- **`syncGarmin` 未连接账号静默"成功"**：旧版没 token 时调用会一路走完（拉 daily/sleep 全部报 401）才返回 `error: undefined, synced: false`，用户看到的是空成功消息。现在入口处 `await queries.isConnected()` 短路，**未连接直接返回明确错误**（"未连接佳明账号，请先在设置中点击「连接佳明」"），并 warn 日志
+- **`sleepSeconds` 兜底逻辑**：移除 daily 顶层 sleepingSeconds 兜底，只用 sleep 端点的 sleepTimeSeconds（避免上面那条 bug 再次回退）。如果 sleep 端点失败 / 缺失则 sleepSeconds = undefined（前端显示 `—`）
+
+### ✨ 新功能
+- **夜间生理字段入库**：`DailyRecord` 新增 4 个字段（来自 sleep 端点 `dailySleepDTO` + 顶层）：
+  - `sleepAvgHeartRate`（睡眠平均心率，sleep 端点）
+  - `avgRespiration`（平均呼吸率）
+  - `lowestRespiration`（最低呼吸率）
+  - `avgOvernightHrv`（平均夜间 HRV，sleep 端点顶层字段）
+  - 已加进 `DailyRecord` 类型 + `toDailyRecord` 解析逻辑 + `lib/*.d.ts` 类型声明。前端详情浮层暂未渲染（等用户确认展示位置后再加）
+- **`GarminQueries.isConnected()`**：新增接口方法 `isConnected(): Promise<boolean>`，包装 `client.hasToken()`，供 sync 入口判断 + 未来 UI（设置页"已连接/未连接"状态指示）使用
+
+### 🔧 重构
+- `GarminStoreFile.writeMetaAtomic` / `writeActivitiesAtomic` 改为 `withLock(async () => ...)` 包裹，私有方法实现不变
+- `mergeDailyRaws` 签名加 `sleepRaw` 参数（插在 `dailyRaw` 后、`hrvRaw` 前），旧调用点同步更新
+- `toDailyRecord` 改为只读 sleep 端点的 `sleepTimeSeconds`，不再使用 daily 顶层的宽口径值
+
+### 📦 构建产物
+- `lib/api/queries.{js,d.ts}` / `lib/storage.{js,d.ts}` / `lib/sync.{js,d.ts}` / `lib/client.js` 由 `npm run build` 重新生成
+
 ## 0.2.1（2026-09-01）— 健康数据过滤 + 心率修正 + 默认天数保护
 
 
