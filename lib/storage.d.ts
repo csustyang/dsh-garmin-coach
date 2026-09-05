@@ -113,6 +113,10 @@ export interface DailyRecord {
     napSeconds?: number;
     averageSpO2?: number;
     lowestSpO2?: number;
+    sleepAvgHeartRate?: number;
+    avgRespiration?: number;
+    lowestRespiration?: number;
+    avgOvernightHrv?: number;
     raw?: unknown;
 }
 export interface GarminStore {
@@ -146,6 +150,15 @@ export declare class GarminStoreFile {
     /** 缓存权限检查结果（一次检查后所有写操作都用）*/
     private _permChecked;
     private _permOk;
+    /**
+     * 写锁（meta/activities 共享同一把锁）
+     * 串行化所有 mutate 操作，避免并发 read-modify-write 竞争：
+     *  - sync.ts 主循环批量 upsertDailies（串行 await，已安全）
+     *  - sync.ts 训练补全 fire-and-forget 的 upsertDaily（**异步触发**，会和主循环 mutateMeta 撞车）
+     *  - syncOnConnect 末尾的 lastSyncAt 更新
+     * 串行后所有 mutateMeta 按顺序执行，read 永远看到上一个写完的状态。
+     */
+    private writeLock;
     constructor(opts?: GarminStoreOptions);
     /**
      * 检查写权限（一次性，缓存结果）
@@ -188,11 +201,17 @@ export declare class GarminStoreFile {
     private get legacyFilePath();
     private fileExists;
     /**
+     * 把异步操作串行化（防止并发 mutate 撞车导致 ENOENT/数据丢失）
+     * 用法：return this.withLock(async () => { ... await mutate ... })
+     */
+    private withLock;
+    /**
      * 原子写 meta（version/lastSyncAt/daily/sportFilter/syncDaysBack/fullSyncCursor）
      * 不含 activities（见 writeActivitiesAtomic）。
+     * 走 writeLock 串行化（避免并发写入 tmp 文件导致 rename ENOENT）
      */
     private writeMetaAtomic;
-    /** 原子写 activities（独立文件） */
+    /** 原子写 activities（独立文件），也走 writeLock */
     private writeActivitiesAtomic;
     /** 原子写 */
     write(store: GarminStore): Promise<void>;

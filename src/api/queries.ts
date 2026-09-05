@@ -21,6 +21,7 @@ function addDays(date: string, days: number): string {
 
 export interface GarminQueries {
   whoami(): Promise<string>
+  isConnected(): Promise<boolean>
   daily(date?: string): Promise<unknown>
   sleep(date?: string): Promise<unknown>
   hrv(date?: string): Promise<unknown>
@@ -57,6 +58,10 @@ export function makeQueries(client: GarminClient): GarminQueries {
       }
       const api = await client.getApi()
       return api.displayName
+    },
+
+    async isConnected() {
+      return await client.hasToken()
     },
 
     async daily(date) {

@@ -9,6 +9,7 @@
 import { GarminClient } from '../auth/client.js';
 export interface GarminQueries {
     whoami(): Promise<string>;
+    isConnected(): Promise<boolean>;
     daily(date?: string): Promise<unknown>;
     sleep(date?: string): Promise<unknown>;
     hrv(date?: string): Promise<unknown>;

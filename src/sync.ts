@@ -239,18 +239,32 @@ export function isEmptyDailyPayload(raw: unknown): boolean {
  * 合并 5 个单日端点的响应到一个 raw 对象，模拟 Garmin 完整 daily 的嵌套结构。
  * 这样 toDailyRecord 可以不用改 —— sleep/hrv/readiness/training 端点返回的字段
  * 会被嵌入到 daily 响应的 dailySleepDTO/hrv/readiness 嵌套里。
+ *
+ * sleep 端点优先级高于 daily 顶层 sleepingSeconds：
+ *  - sleep 端点 dailySleepDTO.sleepTimeSeconds 是"实际睡眠时长"（不含躺床缓冲期）
+ *  - daily 端点顶层 sleepingSeconds 包含"非睡眠缓冲期"（通常多 15-30 分钟）
+ *  - 手表 App 显示的"睡眠时长" = 实际睡眠 = sleep 端点值
+ *  - 因此 sleep 端点必须覆盖 daily 端点的版本，避免被旧的"宽口径"值覆盖回退
  */
 function mergeDailyRaws(
   dailyRaw: unknown,
+  sleepRaw: unknown,
   hrvRaw: unknown,
   readinessRaw: unknown,
   trainingRaw: unknown,
 ): Record<string, unknown> {
   const merged: Record<string, unknown> = {}
-  // daily 端点返回顶层字段 + 内嵌 dailySleepDTO（步数/心率/BB/压力/睡眠分层/睡眠分等）
-  // 实测 CN 账号 daily 端点已经返回完整 dailySleepDTO，不需要再调独立 sleep 端点
+  // 先放 daily 顶层（步数/心率/BB/压力等）
   if (dailyRaw && typeof dailyRaw === 'object') {
     Object.assign(merged, dailyRaw as Record<string, unknown>)
+  }
+  // sleep 端点覆盖 dailySleepDTO（含 sleepTimeSeconds / 睡眠分期 / 评分）
+  // 关键：sleep 端点的 sleepTimeSeconds 比 daily 顶层 sleepingSeconds 准（不含躺床缓冲期）
+  if (sleepRaw && typeof sleepRaw === 'object') {
+    const s = sleepRaw as Record<string, unknown>
+    if (s.dailySleepDTO && typeof s.dailySleepDTO === 'object') {
+      merged.dailySleepDTO = s.dailySleepDTO
+    }
   }
   // HRV/readiness 端点**已停用**（用户决定不存这些数据）—— 参数 hrvRaw/readinessRaw 保留但不使用
   // training 字段可能跟 daily 顶层有重叠，保留原始 daily 字段优先，不强制合并
@@ -274,8 +288,14 @@ export function toDailyRecord(date: string, raw: unknown): DailyRecord {
         // 睡眠血氧（如果设备支持）
         averageSpO2?: number
         lowestSpO2?: number
+        // 夜间生理（平均/最低呼吸、平均心率）
+        avgHeartRate?: number
+        averageRespirationValue?: number
+        lowestRespirationValue?: number
       }
     | undefined
+  // sleep 端点顶层（不在 dailySleepDTO 内）
+  const avgOvernightHrv = s.avgOvernightHrv as number | undefined
   // HRV/readiness 字段已停用（用户决定不存这些数据）—— 类型不再引用 s.hrv / s.readiness
   // const hrv = s.hrv as { status?: string; weeklyAverage?: number } | undefined
   // const readiness = Array.isArray(s.readiness)
@@ -304,9 +324,10 @@ export function toDailyRecord(date: string, raw: unknown): DailyRecord {
     // 楼层
     floorsAscendedMeters: s.floorsAscendedInMeters as number | undefined,
     // 睡眠
-    // daily 端点顶层有 sleepingSeconds（CN 端点），sleep 端点 dailySleepDTO 嵌套有 sleepTimeSeconds
-    // 两个值通常一致，优先取 sleep 端点（更准，含完整分期信息）
-    sleepSeconds: sleepDto?.sleepTimeSeconds ?? (s.sleepingSeconds as number | undefined),
+    // 优先用 sleep 端点的 sleepTimeSeconds（实际睡眠时长，不含躺床缓冲期）
+    // 不再用 daily 顶层 sleepingSeconds 作兜底——它包含 15-30 分钟的非睡眠缓冲期，
+    // 会让"睡眠时长"比手表显示多出 ~26 分钟（用户实测发现的 bug，2026-09-05）
+    sleepSeconds: sleepDto?.sleepTimeSeconds,
     sleepScore: sleepDto?.sleepScores?.overall?.value,
     // 睡眠分期
     deepSleepSeconds: sleepDto?.deepSleepSeconds,
@@ -318,6 +339,12 @@ export function toDailyRecord(date: string, raw: unknown): DailyRecord {
     // 睡眠血氧
     averageSpO2: sleepDto?.averageSpO2,
     lowestSpO2: sleepDto?.lowestSpO2,
+    // 夜间生理（来自 sleep 端点 dailySleepDTO）
+    sleepAvgHeartRate: sleepDto?.avgHeartRate,
+    avgRespiration: sleepDto?.averageRespirationValue,
+    lowestRespiration: sleepDto?.lowestRespirationValue,
+    // 平均夜间 HRV（来自 sleep 端点顶层 dailySleepDTO 之外）
+    avgOvernightHrv,
     // HRV
     // HRV/readiness 字段已停用（用户决定不存这些数据）
     // 原始载荷
@@ -337,6 +364,19 @@ export function toDailyRecord(date: string, raw: unknown): DailyRecord {
  */
 export async function syncGarmin(opts: SyncOptions): Promise<SyncResult> {
   const { sportFilter, store, queries } = opts
+  // 未连接账号：短路返回明确错误（避免静默"同步完成 0 条"）
+  if (!(await queries.isConnected())) {
+    const msg = '未连接佳明账号，请先在设置中点击「连接佳明」'
+    logger.warn('sync', msg)
+    return {
+      synced: false,
+      activitiesAdded: 0,
+      activitiesTotal: 0,
+      dailiesAdded: 0,
+      sportsSeen: [],
+      error: msg,
+    }
+  }
   // 防御性截断（L3）：days 超出硬上限（SYNC_DAYS_BACK_MAX=30）一律夹到上限并 warn，
   // 防止 settings 文件被改坏、或外部绕过 schema 时把 Garmin 服务器拉爆。
   // （活动端点支持区间一次拉取，健康端点每天一次调用，是 N 次循环 —— N 必须有上限）
@@ -410,11 +450,15 @@ export async function syncGarmin(opts: SyncOptions): Promise<SyncResult> {
       const dateStr = localDateStr(d)
       if (dateStr > to) break
       try {
-        // daily 是核心数据（必等入库）；training 是"加分项"，异步拉取后入库
+        // daily 是核心数据（必等入库）；sleep 是睡眠准值（覆盖 daily 顶层 sleepingSeconds 的宽口径值）；
+        // training 是"加分项"，异步拉取后入库
         // HRV/readiness 端点**不再调用**——用户主动选择不要这些数据
         // 之前 Promise.all 等 4 个端点 = 总耗时 = max(所有端点)
-        // 现在 daily 立刻用，training 后台入库 = 同步耗时 ≈ daily 耗时
-        const dailyRaw = await queries.daily(dateStr).catch(() => null)
+        // 现在 daily + sleep 同步拉，training 后台入库 = 同步耗时 ≈ daily+sleep 耗时
+        const [dailyRaw, sleepRaw] = await Promise.all([
+          queries.daily(dateStr).catch(() => null),
+          queries.sleep(dateStr).catch(() => null),
+        ])
         // 异步补全 training（不阻塞主流程，UI 不等）
         // 注：HRV/readiness 端点**已不调用**（用户决定不存这些数据）
         const extrasPromise = Promise.all([
@@ -424,7 +468,7 @@ export async function syncGarmin(opts: SyncOptions): Promise<SyncResult> {
           const existing = await store.readMetaOnly()
           const prev = existing.daily[dateStr]
           if (!prev) return // 当天没入库，跳过补全
-          const merged = mergeDailyRaws(dailyRaw, null, null, trainingRaw)
+          const merged = mergeDailyRaws(dailyRaw, sleepRaw, null, null, trainingRaw)
           // 保持原有 daily 字段，只补 training 字段
           await store.upsertDaily({
             ...prev,
@@ -434,10 +478,10 @@ export async function syncGarmin(opts: SyncOptions): Promise<SyncResult> {
           logger.warn('sync', `${dateStr} training 补全失败: ${(e as Error).message}`)
         })
         void extrasPromise // fire-and-forget，不 await
-        // daily 单独入库（不等 training）
-        const mergedDaily = mergeDailyRaws(dailyRaw, null, null, null) // 只用 daily 字段
+        // daily + sleep 合并入库（sleep 端点的 dailySleepDTO 覆盖 daily 端点的宽口径值）
+        const mergedDaily = mergeDailyRaws(dailyRaw, sleepRaw, null, null, null)
         // 调试日志
-        logger.debug('sync', `${dateStr} 端点返回: daily=${dailyRaw ? '✓' : '✗'} (hrv/readiness/training 异步补全)`)
+        logger.debug('sync', `${dateStr} 端点返回: daily=${dailyRaw ? '✓' : '✗'} sleep=${sleepRaw ? '✓' : '✗'} (training 异步补全)`)
         // 过滤空 payload
         const isEmpty = isEmptyDailyPayload(mergedDaily)
         if (isEmpty) {

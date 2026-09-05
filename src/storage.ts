@@ -123,6 +123,12 @@ export interface DailyRecord {
   // 睡眠血氧（部分设备支持）
   averageSpO2?: number
   lowestSpO2?: number
+  // 夜间生理（来自 sleep 端点 dailySleepDTO / 顶层）
+  sleepAvgHeartRate?: number
+  avgRespiration?: number
+  lowestRespiration?: number
+  // 平均夜间 HRV（sleep 端点顶层字段）
+  avgOvernightHrv?: number
   // HRV/readiness 字段已停用（用户决定不存这些数据）
   // hrvStatus?: string
   // hrvWeeklyAvg?: number
@@ -175,6 +181,15 @@ export class GarminStoreFile {
   /** 缓存权限检查结果（一次检查后所有写操作都用）*/
   private _permChecked: boolean = false
   private _permOk: boolean = true
+  /**
+   * 写锁（meta/activities 共享同一把锁）
+   * 串行化所有 mutate 操作，避免并发 read-modify-write 竞争：
+   *  - sync.ts 主循环批量 upsertDailies（串行 await，已安全）
+   *  - sync.ts 训练补全 fire-and-forget 的 upsertDaily（**异步触发**，会和主循环 mutateMeta 撞车）
+   *  - syncOnConnect 末尾的 lastSyncAt 更新
+   * 串行后所有 mutateMeta 按顺序执行，read 永远看到上一个写完的状态。
+   */
+  private writeLock: Promise<void> = Promise.resolve()
 
   constructor(opts: GarminStoreOptions = {}) {
     // 固定数据目录：优先显式 dataDir；否则用用户主目录下的 data（~/data）。
@@ -369,8 +384,25 @@ export class GarminStoreFile {
   }
 
   /**
+   * 把异步操作串行化（防止并发 mutate 撞车导致 ENOENT/数据丢失）
+   * 用法：return this.withLock(async () => { ... await mutate ... })
+   */
+  private async withLock<T>(fn: () => Promise<T>): Promise<T> {
+    const prev = this.writeLock
+    let release: () => void
+    this.writeLock = new Promise<void>((resolve) => { release = resolve })
+    try {
+      await prev
+      return await fn()
+    } finally {
+      release!()
+    }
+  }
+
+  /**
    * 原子写 meta（version/lastSyncAt/daily/sportFilter/syncDaysBack/fullSyncCursor）
    * 不含 activities（见 writeActivitiesAtomic）。
+   * 走 writeLock 串行化（避免并发写入 tmp 文件导致 rename ENOENT）
    */
   private async writeMetaAtomic(meta: {
     version: number
@@ -380,20 +412,24 @@ export class GarminStoreFile {
     syncDaysBack: number
     fullSyncCursor?: string
   }): Promise<void> {
-    await this.checkPermission()
-    await mkdir(this.dataDir, { recursive: true })
-    const tmp = `${this.metaPath}.${process.pid}.tmp`
-    await writeFile(tmp, JSON.stringify(meta, null, 2), 'utf8')
-    await rename(tmp, this.metaPath)
+    await this.withLock(async () => {
+      await this.checkPermission()
+      await mkdir(this.dataDir, { recursive: true })
+      const tmp = `${this.metaPath}.${process.pid}.tmp`
+      await writeFile(tmp, JSON.stringify(meta, null, 2), 'utf8')
+      await rename(tmp, this.metaPath)
+    })
   }
 
-  /** 原子写 activities（独立文件） */
+  /** 原子写 activities（独立文件），也走 writeLock */
   private async writeActivitiesAtomic(activities: Record<string, ActivityRecord>): Promise<void> {
-    await this.checkPermission()
-    await mkdir(this.dataDir, { recursive: true })
-    const tmp = `${this.activitiesPath}.${process.pid}.tmp`
-    await writeFile(tmp, JSON.stringify({ activities }, null, 2), 'utf8')
-    await rename(tmp, this.activitiesPath)
+    await this.withLock(async () => {
+      await this.checkPermission()
+      await mkdir(this.dataDir, { recursive: true })
+      const tmp = `${this.activitiesPath}.${process.pid}.tmp`
+      await writeFile(tmp, JSON.stringify({ activities }, null, 2), 'utf8')
+      await rename(tmp, this.activitiesPath)
+    })
   }
 
   /** 原子写 */
