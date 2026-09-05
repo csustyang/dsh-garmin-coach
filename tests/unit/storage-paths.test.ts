@@ -12,16 +12,16 @@ import assert from 'node:assert/strict'
 import { GarminStoreFile } from '../../src/storage.js'
 import { dirname, join } from 'node:path'
 
-globalThis.test('storage: filePath / planPath / diaryPath 在 Windows 路径下也是绝对路径', () => {
+globalThis.test('storage: metaPath / planPath / diaryPath 在 Windows 路径下也是绝对路径', () => {
   const s = new GarminStoreFile({ dataDir: 'C:\\workspace\\data' })
   // 访问 private 字段用 `as any`（测试黑盒）
-  const filePath = (s as any).filePath as string
+  const metaPath = (s as any).metaPath as string
   const planPath = (s as any).planPath as string
   const diaryPath = (s as any).diaryPath as string
-  // filePath = C:\workspace\data\garmin.json
+  // metaPath = C:\workspace\data\garmin.json
   assert.ok(
-    filePath.includes('garmin.json'),
-    `filePath 应包含 garmin.json，实际: ${filePath}`,
+    metaPath.includes('garmin.json'),
+    `metaPath 应包含 garmin.json，实际: ${metaPath}`,
   )
   // planPath 应是 sibling（不是相对路径 'training-plan.json'，不是 ''）
   assert.ok(
@@ -39,24 +39,24 @@ globalThis.test('storage: filePath / planPath / diaryPath 在 Windows 路径下�
   )
 })
 
-globalThis.test('storage: planPath 实际指向 filePath 同目录', () => {
+globalThis.test('storage: planPath 实际指向 metaPath 同目录', () => {
   const s = new GarminStoreFile({ dataDir: '/tmp/garmin-test' })
-  const filePath = (s as any).filePath as string
+  const metaPath = (s as any).metaPath as string
   const planPath = (s as any).planPath as string
-  const planDir = dirname(filePath)
+  const planDir = dirname(metaPath)
   const planPathDir = dirname(planPath)
   assert.equal(
     planPathDir,
     planDir,
-    `planPath 目录 ${planPathDir} 应等于 filePath 目录 ${planDir}`,
+    `planPath 目录 ${planPathDir} 应等于 metaPath 目录 ${planDir}`,
   )
 })
 
 globalThis.test('storage: Windows 路径下能正确创建 training-plan-history 目录', () => {
   const s = new GarminStoreFile({ dataDir: 'C:\\workspace\\data' })
-  const filePath = (s as any).filePath as string
+  const metaPath = (s as any).metaPath as string
   const planPath = (s as any).planPath as string
-  // historyDir 来自 planPath（dir of dir of planPath 是 filePath 目录）
+  // historyDir 来自 planPath（dir of dir of planPath 是 metaPath 目录）
   const expectedHistory = join(dirname(planPath), 'training-plan-history')
   assert.ok(
     expectedHistory.includes('training-plan-history'),
@@ -69,7 +69,7 @@ globalThis.test('storage: Windows 路径下能正确创建 training-plan-history
   // 反向验证：原 bug 行为
   // - Windows 路径（只用 \）：lastIndexOf('/') 永远 -1 → substring(0, -1) = '' → 触发 bug
   // - Mac/Linux 路径（含 /）：lastIndexOf('/') 找到正常位置 → 不触发 bug
-  const oldStyle = filePath.substring(0, filePath.lastIndexOf('/'))
+  const oldStyle = metaPath.substring(0, metaPath.lastIndexOf('/'))
   if (process.platform === 'win32') {
     assert.equal(
       oldStyle,

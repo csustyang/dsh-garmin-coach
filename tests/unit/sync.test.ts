@@ -102,7 +102,7 @@ test('toDailyRecord: CN 顶层字段映射', () => {
   assert.equal(r.restingHeartRate, 55)
   assert.equal(r.bodyBattery, 80)
   assert.equal(r.stressAvg, 30)
-  assert.equal(r.avgHeartRate, 75, 'CN 用 minAvgHeartRate 作平均')
+  // avgHeartRate 已移除（Garmin 没全天平均，minAvgHeartRate 是错的）
   assert.equal(r.floorsAscendedMeters, 50)
 })
 
@@ -117,25 +117,9 @@ test('toDailyRecord: 睡眠从 dailySleepDTO 嵌套取', () => {
   assert.equal(r.sleepScore, 85)
 })
 
-test('toDailyRecord: HRV 嵌套取 weeklyAverage', () => {
-  const r = toDailyRecord('2026-08-20', {
-    hrv: { status: 'BALANCED', weeklyAverage: 65 },
-  })
-  assert.equal(r.hrvStatus, 'BALANCED')
-  assert.equal(r.hrvWeeklyAvg, 65)
-})
-
-test('toDailyRecord: readiness 兼容数组和单对象', () => {
-  const r1 = toDailyRecord('2026-08-20', {
-    readiness: [{ score: 80 }],
-  })
-  assert.equal(r1.readinessScore, 80, '数组形式')
-
-  const r2 = toDailyRecord('2026-08-20', {
-    readiness: { score: 75 },
-  })
-  assert.equal(r2.readinessScore, 75, '单对象形式')
-})
+// HRV/readiness 字段已停用（用户决定不存这些数据）—— 相关测试删除
+// test('toDailyRecord: HRV 嵌套取 weeklyAverage', () => { ... })
+// test('toDailyRecord: readiness 兼容数组和单对象', () => { ... })
 
 test('toDailyRecord: 空对象也合法（缺字段为 undefined）', () => {
   const r = toDailyRecord('2026-08-20', {})

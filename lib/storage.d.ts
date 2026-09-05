@@ -105,9 +105,14 @@ export interface DailyRecord {
     floorsAscendedMeters?: number;
     sleepSeconds?: number;
     sleepScore?: number;
-    hrvStatus?: string;
-    hrvWeeklyAvg?: number;
-    readinessScore?: number;
+    deepSleepSeconds?: number;
+    lightSleepSeconds?: number;
+    remSleepSeconds?: number;
+    awakeSleepSeconds?: number;
+    awakeCount?: number;
+    napSeconds?: number;
+    averageSpO2?: number;
+    lowestSpO2?: number;
     raw?: unknown;
 }
 export interface GarminStore {
@@ -133,8 +138,11 @@ export interface GarminStoreOptions {
  * 后期换 PostgreSQL 时实现同名接口即可。
  */
 export declare class GarminStoreFile {
-    private readonly filePath;
+    private readonly dataDir;
+    private readonly metaPath;
+    private readonly activitiesPath;
     private cache;
+    private activitiesCache;
     /** 缓存权限检查结果（一次检查后所有写操作都用）*/
     private _permChecked;
     private _permOk;
@@ -147,14 +155,58 @@ export declare class GarminStoreFile {
      */
     checkPermission(): Promise<void>;
     private permissionErrorMessage;
-    /** 读（带内存缓存，避免频繁磁盘 IO）*/
+    /**
+     * 读（兼容旧 API：返回完整 store，包括 activities）。
+     * 如果存在旧单一 garmin.json，自动迁移到拆 3 文件结构。
+     *
+     * ⚠️ 注意：为了向后兼容 stats.ts 大量使用 `data.activities`，本方法会同时加载 activities。
+     * 如果只要 meta + daily（启动快），用 readMetaOnly()。
+     */
     read(): Promise<GarminStore>;
+    /**
+     * 只读 meta + daily（不加载 activities）。
+     * 适合 syncGarmin / dashboardSummary 等只需要元数据的场景。
+     * 启动成本从 ~2.5 MB 降到 ~300 KB（实际数据量决定）。
+     */
+    readMetaOnly(): Promise<GarminStore>;
+    /** 内部：读 meta 文件原始内容（含 daily）*/
+    private readMetaRaw;
+    /**
+     * 加载 activities（懒加载，缓存）。
+     * 任何用 activities 的函数（dashboard/recentActivities/sportBreakdown）都要先调这个。
+     */
+    readActivities(): Promise<Record<string, ActivityRecord>>;
+    /** 缓存的 activities 是否已加载（read() 时 activities 永远是空对象）*/
+    hasActivitiesLoaded(): boolean;
+    /** 失效 activities 缓存（写后） */
+    private invalidateActivitiesCache;
+    /**
+     * 迁移：旧版单一 garmin.json → meta + activities 两个文件
+     * 只在第一次 read()/readActivities() 时跑一次（用文件存在性作 marker）
+     */
+    private migrateFromLegacyIfNeeded;
+    private get legacyFilePath();
+    private fileExists;
+    /**
+     * 原子写 meta（version/lastSyncAt/daily/sportFilter/syncDaysBack/fullSyncCursor）
+     * 不含 activities（见 writeActivitiesAtomic）。
+     */
+    private writeMetaAtomic;
+    /** 原子写 activities（独立文件） */
+    private writeActivitiesAtomic;
     /** 原子写 */
     write(store: GarminStore): Promise<void>;
     /**
      * 更新：读→改→写（带重试，避免并发冲突）
+     * 重要：传入的 fn 应该只动 meta + daily（activities 走专门路径）。
+     * fn 改 store.activities 不影响最终落盘（write 走 store.activities 当前缓存）。
      */
     mutate<T>(fn: (store: GarminStore) => T | Promise<T>): Promise<T>;
+    /**
+     * 只更新 meta + daily（不读不写 activities）—— 大多数 mutate 路径走这个。
+     * 比 mutate() 快（不需要加载 activities 文件）。
+     */
+    mutateMeta<T>(fn: (store: GarminStore) => T | Promise<T>): Promise<T>;
     /** 落库一条活动（按 activityId 去重）*/
     upsertActivity(activity: ActivityRecord): Promise<boolean>;
     /** 批量落库活动，返回新增数量 */

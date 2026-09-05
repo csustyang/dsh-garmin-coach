@@ -60,8 +60,6 @@ export declare function dailyStats(store: GarminStoreFile, args: DailyStatsArgs)
     avgRestingHr: number;
     avgSleepHours: number;
     avgStress: number;
-    avgHrv: number;
-    lastHrvStatus: string;
 }>;
 /** 运动类型分布 */
 export declare function sportBreakdown(store: GarminStoreFile, days?: number): Promise<Array<{
@@ -96,7 +94,6 @@ export declare function dashboardSummary(store: GarminStoreFile): Promise<{
         avgSteps: number;
         avgRestingHr: number;
         avgSleepHours: number;
-        avgHrv: number;
     };
     sportBreakdown: Array<{
         sport: string;

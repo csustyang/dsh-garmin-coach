@@ -229,8 +229,9 @@ export async function dailyStats(
   avgRestingHr: number
   avgSleepHours: number
   avgStress: number
-  avgHrv: number
-  lastHrvStatus: string
+  // HRV/readiness 字段已停用
+  // avgHrv: number
+  // lastHrvStatus: string
 }> {
   const data = await store.read()
   let dailies = Object.values(data.daily).sort((a, b) =>
@@ -240,7 +241,7 @@ export async function dailyStats(
     dailies = dailies.slice(0, args.days)
   }
   if (dailies.length === 0) {
-    return { days: 0, avgSteps: 0, avgRestingHr: 0, avgSleepHours: 0, avgStress: 0, avgHrv: 0, lastHrvStatus: '' }
+    return { days: 0, avgSteps: 0, avgRestingHr: 0, avgSleepHours: 0, avgStress: 0 }
   }
   const avg = (arr: (number | undefined)[]) => {
     const nums = arr.filter((x): x is number => x !== undefined)
@@ -253,8 +254,9 @@ export async function dailyStats(
     avgSleepHours: Math.round((avg(dailies.map((d) => d.sleepSeconds)) / 3600) * 10) / 10,
     // 过滤 stressAvg = -1（Garmin "未检测到压力"占位），不参与平均
     avgStress: avg(dailies.filter((d) => d.stressAvg != null && d.stressAvg > 0).map((d) => d.stressAvg as number)),
-    avgHrv: avg(dailies.map((d) => d.hrvWeeklyAvg)),
-    lastHrvStatus: dailies[0]?.hrvStatus ?? '',
+    // HRV/readiness 字段已停用
+    // avgHrv: avg(dailies.map((d) => d.hrvWeeklyAvg)),
+    // lastHrvStatus: dailies[0]?.hrvStatus ?? '',
   }
 }
 
@@ -311,7 +313,6 @@ export async function dashboardSummary(
     avgSteps: number
     avgRestingHr: number
     avgSleepHours: number
-    avgHrv: number
   }
   sportBreakdown: Array<{ sport: string; count: number; totalKm: number }>
   dailyRecent: Array<{
@@ -420,6 +421,9 @@ export async function dashboardSummary(
     stressAvg?: number; maxStressLevel?: number; stressQualifier?: string
     highlyActiveSeconds?: number; activeSeconds?: number; sedentarySeconds?: number; floorsAscendedMeters?: number
     sleepSeconds?: number; sleepScore?: number
+    deepSleepSeconds?: number; lightSleepSeconds?: number; remSleepSeconds?: number
+    awakeSleepSeconds?: number; awakeCount?: number; napSeconds?: number
+    averageSpO2?: number; lowestSpO2?: number
     hrvStatus?: string; hrvWeeklyAvg?: number
     readinessScore?: number
   }> = []
@@ -459,9 +463,18 @@ export async function dashboardSummary(
         floorsAscendedMeters: dd.floorsAscendedMeters,
         sleepSeconds: dd.sleepSeconds,
         sleepScore: dd.sleepScore,
-        hrvStatus: dd.hrvStatus,
-        hrvWeeklyAvg: dd.hrvWeeklyAvg,
-        readinessScore: dd.readinessScore,
+        deepSleepSeconds: dd.deepSleepSeconds,
+        lightSleepSeconds: dd.lightSleepSeconds,
+        remSleepSeconds: dd.remSleepSeconds,
+        awakeSleepSeconds: dd.awakeSleepSeconds,
+        awakeCount: dd.awakeCount,
+        napSeconds: dd.napSeconds,
+        averageSpO2: dd.averageSpO2,
+        lowestSpO2: dd.lowestSpO2,
+        // HRV/readiness 字段已停用
+        // hrvStatus: dd.hrvStatus,
+        // hrvWeeklyAvg: dd.hrvWeeklyAvg,
+        // readinessScore: dd.readinessScore,
       })
     }
   }

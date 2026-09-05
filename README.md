@@ -24,13 +24,13 @@
 
 | 模块 | 内容 |
 |---|---|
-| 🔐 **认证** | CN 账号 + 短信 MFA + DI OAuth2（token ~28h，自动 refresh） |
+| 🔐 **认证** | CN 账号 + 短信 MFA + DI OAuth2（access token ~1h 自动 refresh） |
 | 📊 **数据同步** | 增量同步（不重复拉全量），手动触发（防 Garmin 行为指纹检测） |
 | 📈 **运动看板** | 30+ 分析（距离/配速/心率/HR-Pace/步频/TRIMP/时段/一致性等）|
 | 🤖 **AI 训练建议** | 规则生成洞察（PB 变化、跑量趋势、步频建议等）|
 | 📋 **训练计划** | AI 生成结构化计划 + 打卡勾选 + 历史版本/恢复 |
 | 📓 **训练日记** | 训练后记感受/评分 + 时间线查看 |
-| 🔄 **AI 工具** | 25 个工具，AI 对话中可直接调用（如"月报"/"训练计划"）|
+| 🔄 **AI 工具** | 17 个工具，AI 对话中可直接调用（如"月报"/"训练计划"）|
 | 💾 **持久化** | 数据存 `~/data/`（garmin.json + training-plan.json + training-diary.json）|
 
 ## 📦 安装
@@ -112,7 +112,7 @@ ddsh restart
 4. 登录后如需要 MFA，输入**短信验证码**
 5. 点击**保存配置**
 6. 等待几秒，token 会自动保存（加密）
-7. 点击**立即同步** → 按设置中的"回看天数"拉取（默认 14 天，可在 Garmin Coach 设置页修改）
+7. 点击**立即同步** → 按设置中的"回看天数"拉取（默认 30 天，可在 Garmin Coach 设置页修改）
 
 > ⚠️ **首次同步后**，数据存到 `~/data/garmin.json`（macOS/Linux 用户 Home 目录）。Windows 用户在 DSH 启动目录下的 `data\garmin.json`。
 
@@ -174,10 +174,11 @@ ddsh restart
 ```
 ~/data/                                              # macOS/Linux
 %USERPROFILE%\data\  或  <DSH_cwd>\data\            # Windows
-├── garmin.json            # 活动 + 每日健康（同步数据）
-├── training-plan.json     # 当前训练计划 + 打卡状态
-├── training-diary.json    # 训练日记
-└── training-plan-history/ # 计划历史（自动备份）
+├── garmin.json              # meta + daily（同步数据，约 100 KB）
+├── garmin-activities.json   # activities（约 1.75 MB，单独文件）
+├── training-plan.json       # 当前训练计划 + 打卡状态
+├── training-diary.json      # 训练日记
+└── training-plan-history/   # 计划历史（自动备份）
 ```
 
 ### 同步策略
@@ -205,20 +206,17 @@ ddsh restart
 
 **插件已自带保护**：写文件前会探测权限，权限不足时会返回明确错误（包含路径 + 修复方法），而不是静默失败。
 
-## 🔧 AI 工具列表（25 个）
+## 🔧 AI 工具列表（17 个）
 
-### 基础查询（9）
-- `garmin_whoami` / `garmin_daily` / `garmin_sleep` / `garmin_hrv` / `garmin_readiness`
-- `garmin_training` / `garmin_activities` / `garmin_summary` / `garmin_weekly`
+### 基础查询（6，src/tools/register.ts）
+- `garmin_whoami` / `garmin_daily` / `garmin_sleep` / `garmin_hrv`
+- `garmin_activities` / `garmin_summary`
 
-### 统计与分析（7）
-- `garmin_sync` / `garmin_recent_activities` / `garmin_best_pace` / `garmin_distance_stats`
-- `garmin_daily_stats` / `garmin_sport_breakdown` / `garmin_report`
-
-### 训练计划与日记（9）
-- `garmin_training_plan` / `garmin_save_training_plan` / `garmin_toggle_task`
-- `garmin_plan_progress` / `garmin_plan_history` / `garmin_restore_plan`
-- `garmin_clear_training_plan` / `garmin_log_diary` / `garmin_diary`
+### 统计与计划（11，src/tools/stats-tools.ts）
+- `garmin_sync` / `garmin_recent_activities` / `garmin_best_pace`
+- `garmin_report` / `garmin_training_plan` / `garmin_save_training_plan`
+- `garmin_toggle_task` / `garmin_plan_progress` / `garmin_restore_plan`
+- `garmin_log_diary` / `garmin_diary`
 
 ## 🔐 安全
 
@@ -231,7 +229,7 @@ ddsh restart
 ### 数据隐私
 
 - 所有数据存**本地**（`~/data/`），**不上传任何服务器**
-- 密码/email 用 DSH 的 `secret` role，浏览器拿不到值
+- 密码/email **不持久化**到 settings——只在登录时通过 HTTP body 传给后端（DSH 默认监听 127.0.0.1，外部网络拿不到）
 - 仅与 Garmin API 通信（直接 HTTPS，无中间服务）
 
 ## 🛠️ 开发
@@ -255,21 +253,28 @@ npm run typecheck   # 类型检查
 ```
 src/
 ├── index.ts          # 插件主入口（apply/register/工具注册）
-├── storage.ts        # GarminStoreFile（数据存储 + 计划缓存）
-├── sync.ts           # 增量同步逻辑
-├── stats.ts          # 30+ 运动分析函数 + 报告聚合 + 训练计划数据
+├── storage.ts        # GarminStoreFile（数据存储 + 3 文件 IO + 计划缓存）
+├── sync.ts           # 同步逻辑（增量 + 4 端点并行 + 空 daily 过滤）
+├── stats.ts          # 运动分析 + 报告聚合 + dailyRecent 推送
 ├── settings-web.ts   # settings route（/garmin-settings）
+├── boundary.ts       # 错误边界（withBoundary 容错）
+├── logger.ts         # 日志（落盘到 plugin 日志文件）
 ├── tools/
-│   ├── register.ts        # 基础工具（9）
-│   └── stats-tools.ts     # 统计工具（16）
-└── auth/
-    ├── client.ts          # DI OAuth2 + token refresh
-    ├── file-store.ts      # 持久化 token/mfa state
-    └── constants.ts       # CN/国际端点
+│   ├── register.ts        # 基础工具（6）
+│   └── stats-tools.ts     # 统计工具（11）
+├── auth/
+│   ├── client.ts          # DI OAuth2 + token refresh
+│   ├── file-store.ts      # 持久化 token/mfa state
+│   ├── cookie-jar.ts      # Set-Cookie 解析
+│   ├── token-store.ts     # TokenStore 接口
+│   ├── types.ts           # 类型定义
+│   └── constants.ts       # CN/国际端点
+└── api/
+    └── queries.ts         # 5 端点查询方法（daily/sleep/hrv/readiness/training/activities/summary/whoami）
 
 lib/                # 编译产物
-├── *.js
-└── client.js       # 看板前端（React）
+├── *.js + *.d.ts
+└── client.js       # 看板前端（手写 React IIFE）
 
 cordis.patch.yml    # 注册入口
 package.json

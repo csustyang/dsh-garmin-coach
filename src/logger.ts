@@ -40,7 +40,24 @@ function ensureLogFile(): string {
 const LOG_PATH = ensureLogFile()
 
 function ts(): string {
-  return new Date().toISOString()
+  // 本地时间 + 时区偏移（YYYY-MM-DDTHH:mm:ss.sss+HH:MM）
+  // 而不是 toISOString() 的 UTC（YYYY-...Z），后者对中国时区看起来"差 8 小时"
+  const d = new Date()
+  const pad = (n: number, w = 2) => String(n).padStart(w, '0')
+  const yyyy = d.getFullYear()
+  const mm = pad(d.getMonth() + 1)
+  const dd = pad(d.getDate())
+  const HH = pad(d.getHours())
+  const MM = pad(d.getMinutes())
+  const SS = pad(d.getSeconds())
+  const mss = pad(d.getMilliseconds(), 3)
+  // 时区偏移（如 +08:00 / -05:00 / +00:00）
+  const offMin = -d.getTimezoneOffset() // 注意 JS 反向：getTimezoneOffset 返回 UTC-本地
+  const offSign = offMin >= 0 ? '+' : '-'
+  const offAbs = Math.abs(offMin)
+  const offHH = pad(Math.floor(offAbs / 60))
+  const offMM = pad(offAbs % 60)
+  return `${yyyy}-${mm}-${dd}T${HH}:${MM}:${SS}.${mss}${offSign}${offHH}:${offMM}`
 }
 
 function format(level: string, scope: string, msg: string, extra?: unknown): string {

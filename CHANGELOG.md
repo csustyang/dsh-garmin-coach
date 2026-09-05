@@ -16,7 +16,7 @@
 - **过滤空 daily payload**：旧版 `syncGarmin` 不管 API 返回 200+空对象（账号当天没设备记录）都会写一条"全是 undefined"的 daily 入库，污染"健康数据 N 天"统计。新增 `isEmptyDailyPayload()` 判断，daily 全字段 undefined 时不入库。新增 `scripts/clean-empty-dailies.ts` 一次性清理工具给老用户用
 - **压力值 -1 显示成 `—`**：Garmin `stressAvg = -1` 是"未检测到压力"的合法占位，跟 null/undefined 一样没数据。前端表格之前用 `!= null` 判断，会把 -1 原样显示成 "-1"；现在改为 `!= null && !== -1`，正确显示成 `—`。同步修了 `lib/client.js` 健康趋势压力数组（KPI 压力平均数）和 `src/stats.ts` `avgStress` 计算，确保 -1 不参与压力均值
 - **`stressAvg=-1` 配套字段 `stressQualifier=UNKNOWN` 的语义澄清**：Garmin 后端约定 `stressQualifier='UNKNOWN'` 时 `averageStressLevel=-1` 是"未检测到压力"占位。`stats.ts` 之前的判断用 `dd.stressAvg` truthy 检查，把 -1 当有效值算进 dailyRecent 和压力均值。现已改为 `stressAvg > 0` 才算有效，并补全了 dailyRecent 的"有数据的天"判断（参考活动强度字段 activeKilocalories/highlyActiveSeconds 等，避免漏掉只有活动强度没步数的日子）。`stressAvg=-1` 的记录**不清理**，保留作为"该天压力未检测到"的事实证据
-- **健康趋势表行位详情 + 列编辑**：仿照最近活动，每行行尾加 📊 详情按钮，点击打开页面中间浮层，按"活动量 / 心率 / 压力 / Body Battery / 睡眠 / HRV / 训练准备度"7 个分组展示当日的全部健康指标（自动过滤掉空字段）；表头右上角加 ✏️ 编辑按钮，可勾选 14 个候选列（步数/静息心率/压力/Body Battery/距离/活动消耗/最低心率/最高心率/平均心率/睡眠时长/睡眠分/HRV 状态/HRV 周均/训练准备度），默认显示 4 个核心指标（步数/静息心率/压力/Body Battery）。浮层和编辑面板都支持 Esc / 点击遮罩 / ✕ 三种关闭方式
+- **健康趋势表行位详情 + 列编辑**：仿照最近活动，每行行尾加 📊 详情按钮，点击打开页面中间浮层，按"活动量 / 心率 / 压力 / Body Battery / 睡眠"5 个分组展示当日的全部健康指标（HRV 和训练准备度 dccc461 之后又停用，2 组已删除）（自动过滤掉空字段）；表头右上角加 ✏️ 编辑按钮，可勾选 14 个候选列（步数/静息心率/压力/Body Battery/距离/活动消耗/最低心率/最高心率/平均心率/睡眠时长/睡眠分/HRV 状态/HRV 周均/训练准备度），默认显示 4 个核心指标（步数 / 静息心率 / 最低心率 / 睡眠时长——当前 lib/client.js HEALTH_DEFAULT_COLS 实际值；dccc461 之后又调整）。浮层和编辑面板都支持 Esc / 点击遮罩 / ✕ 三种关闭方式
 - **健康详情浮层数据完整性修复**：`stats.ts` 的 `dailyRecent` 之前只推 7 个字段（steps/restingHeartRate/stressAvg/bodyBattery/totalDistanceMeters/activeKilocalories + date），导致详情浮层大部分组（心率细分/睡眠/HRV/训练准备度）永远空。现在推全 20 个字段，与 `DailyRecord` 类型一致
 - **`fmtTime(0)` 修正确认显示 `0`**：之前 `if (!sec) return '—'` 把 `0`（"用户没动"）也当无数据。现在 `0` 显示成 `0`，只有 `null/undefined` 显示成 `—`。所有调用点（活动时长/睡眠/久坐等）的 0 值都能正确显示
 - **`stressQualifier='UNKNOWN'` 显示成 `—`**：跟 `stressAvg=-1` 一样，Garmin 的 `UNKNOWN` 状态表示"未检测到压力"，对用户来说等同于无数据。详情浮层 get 函数 + 浮层过滤器都加了 `!== 'UNKNOWN'` 判断，未检测到的日子不再展示这个字段
@@ -29,8 +29,6 @@
 - **健康趋势表按日期倒序**：之前后端按 i=89→0 生成 dailyRecent 是升序（最远的日期在最上面），跟用户期望的"最新一天在最上面"相反。前端按 `date` desc 排序后再渲染表体，总数 / 健康 KPI / 滚动加载判断不变
 - **健康趋势表头滚动时固定**：之前表头 `<thead>` 在滚动容器内，向下滑动时跟着消失，看不到列名。CSS 用 `position: sticky; top: 0` + `background: var(--dsw-alias-bg-layer-1)` + `z-index: 1` 让 `<th>` 滚动时吸顶
 - **常量提取**：`FULL_SYNC_DEFAULT_DAYS = 90` 提到 `src/storage.ts` 作为导出常量（与 `SYNC_DAYS_BACK_MAX = 30` 风格统一），`src/index.ts` 全量同步 handler 改为引用常量，不再内联 magic number
-- **清理未追踪文件 + 忽略 vision-toolkit**：删除 `scripts/clean-empty-dailies.ts`（一次性清理历史脏数据脚本，任务已完成）和 `scripts/clear-synced-data.ts`（一次性清空脚本，使用场景过于个性化）；`.gitignore` 加 `.dsh-vision-toolkit/` 忽略 DSH vision-toolkit 本地缓存
-
 ### ✨ 新功能
 - 健康趋势（步数/静息心率/压力/Body Battery）改为和跑量一样的滚动加载：可下拉增量查看更多天数（不再只显示最近 14 天）
 
@@ -43,6 +41,55 @@
 
 
 ## 未发布
+
+### 🐛 健康数据补齐
+- **同步端点从 1 → 2**：之前只调 `daily` 端点（CN usersummary-service），所以 sleep/HRV/Readiness/Training 字段**从未入库**。**方案演进**：
+  - v1: daily + sleep + hrv + readiness + training（5 端点，150 次调用）
+  - v2: daily + hrv + readiness + training（4 端点，去掉 sleep 因 daily 内嵌 dailySleepDTO，120 次调用）
+  - v3: daily + training（2 端点，停用 hrv/readiness 因为用户不用这些数据，61 次调用）
+- 通过 `mergeDailyRaws` 合并多端点数据到统一 raw 格式
+- **睡眠字段扩展**：原来只解析 `sleepSeconds + sleepScore`，现在解析 10 个字段（睡眠时长/分/深睡/浅睡/REM/睡眠中清醒/清醒次数/午睡时长/睡眠血氧均值+最低）
+- **空 daily 过滤**：`isEmptyDailyPayload` 判断"整天没动 + 全 0/空"的情况（步数=0、活动=0、心率=0、BB=0、stressAvg=-1 等），不入库
+  - 心率真采样要求 `min !== max`（Garmin 后端对"没戴表"会填默认 75 作为占位）
+  - "整天没动"判定：`activeSeconds=0 && highlyActiveSeconds=0 && activeKilocalories=0 && steps=0`（即使有 BB 也不算有意义）
+  - 压力 `-1` 和 `stressQualifier='UNKNOWN'` 视为无效占位
+- **健康趋势表行位详情 + 列编辑**：每行尾加 📊 详情按钮，浮层按"活动量/心率/压力/BB/睡眠"5 个分组展示当天全部指标；表头右上角加 ✏️ 编辑按钮，可勾选 13 个候选列
+  - 默认列：`[步数, 静息心率, 最低心率, 睡眠时长]`（用户日常用）
+  - 之前默认有 `压力/BB`，已改成 `最低/最高心率`（更实用）
+  - 浮层/编辑面板支持 Esc / 点击遮罩 / ✕ 三种关闭
+- **健康趋势表头滚动时固定**：CSS `position: sticky; top: 0` 让表头吸顶
+
+### 🐛 同步逻辑修复
+- **同步日期时区 bug 修复**：`new Date('2026-09-03T00:00:00')` 是 UTC 0 点（中国时区 8:00），加 `setDate + toISOString` 后 `dayBefore` 错算 1 天，导致**永远漏掉今天**。改用本地日期 `new Date(y, m-1, d)` + `getFullYear/Month/Date` 修复
+- **HRV/Readiness 端点停用**：用户日常不用这两个数据，移除调用节省 API。`syncGarmin` 改为只调 daily + training，HRV/readiness 端点完全不调。删除 `Storage.DailyRecord` 的 `hrvStatus/hrvWeeklyAvg/readinessScore` 字段 + `stats.ts` healthKPI 的 `avgHrv/lastHrvStatus` 字段 + 前端详情浮层"HRV/训练准备度"组 + 列编辑对应列 + renderHealthCell 对应 case
+- **204 No Content 优雅处理**：Garmin HRV 等端点对"当天没数据"返回 204（0 字节 body），之前 `JSON.parse('')` 抛错被吞掉。改为 `apiGet` 显式判断 204 / 0B → 返回 null，日志显示 `no-data` 而不是误导的"JSON 解析失败"
+- **HRV/Readiness/Training 异步补全**：之前 `syncGarmin` 用 `Promise.all` 等 4 端点全部返回，耗时 = max(所有端点) ≈ 2-3 秒。改为**daily 同步入库 + 其他端点后台异步补全**（fire-and-forget），主流程耗时从 ~5 秒降到 ~1 秒（只等 daily 端点 ~0.4 秒）
+
+### 🚀 性能
+- **拆 3 文件存储**：原 `garmin.json`（2.5 MB 单文件）→ `garmin.json`（meta + daily，~100 KB）+ `garmin-activities.json`（activities，~1.75 MB）
+  - **启动不再加载 activities**：`read()` 默认只读 meta + daily；`syncGarmin` 改用 `readMetaOnly()`
+  - 升级自动迁移：第一次 `read()` 检测到旧单一 `garmin.json` 拆分到新结构，旧文件备份成 `.bak.<timestamp>` 不删
+- **API 请求详细日志**：每个请求都打 `→ GET <URL>` + `← 200 (<elapsed>ms, body=<N>B, <summary>)`，方便排查同步问题
+- **日志时间改本地时区**：之前用 `toISOString()` 输出 UTC（末尾 `Z`），中国时区看日志"差 8 小时"。改成本地时间 + 偏移（`2026-09-04T07:46:09.548+08:00`）——ISO 8601 标准 + 肉眼可读
+- **常量提取**：`SYNC_DAYS_BACK_MAX = 30` 和 `FULL_SYNC_DEFAULT_DAYS = 90` 都提到 `src/storage.ts` 导出常量，引用统一
+
+### 🛠️ UI 改进
+- **前端 UI（`lib/client.js`）同步改造**：输入框 `max=90 → 30`、标签 "1-90 → 1-30"、按钮 fallback `90 → 30`、`EMPTY.syncDaysBack` 默认 14 → 30
+- **最近活动编辑按钮挪到表头右上角**：跟健康趋势一致，每行只带 📊 详情，✏️ 在 h3 旁共用同一编辑面板
+- **`fmtTime(0)` 修正**：之前 `if (!sec) return '—'` 把 0 也当无数据，现在 `0` 显示成 `0`（"用户没动"是合法状态）
+- **健康详情浮层数据完整性**：`stats.ts` 的 `dailyRecent` 之前只推 7 字段，详情浮层大部分组永远空。现在推全 20 字段
+
+### 🐛 其他修复
+- **全量同步完成提示展示真实新增数**：之前消息只显示窗口数（"已处理 X/Y 个窗口"），现在显示新增活动数（"新增 N 条，共 M 条"）
+- **备份位置调整**：增量同步不再备份（按 activityId 去重天然幂等），仅全量同步开始前备份
+- **同步回看天数加 30 天硬上限**：两道防御：① 调用点 `Math.min/max` 截断；② `syncGarmin` 入口再截断（防外部直接调用）。**不**在 schema 加 `.max(30)` —— 历史脏数据（90/365）会被 schema 拒绝、导致整个 settings namespace 注册失败
+- **全量同步默认起点改 90 天前**（之前 `2022-01-01` 拉 4+ 年）
+- **移除错误的"平均心率"字段**：Garmin 没给"全天平均心率"，旧代码用 `minAvgHeartRate`（最低活动段平均）当全天均值是错的。完全移除 `avgHeartRate`
+- **健康表默认列调整**：把 `压力` 和 `Body Battery` 从默认列里去掉，改成 `最低心率` + `最高心率`
+
+### 🧹 清理
+- 删除一次性脚本：`scripts/clean-empty-dailies.ts`（清理历史脏数据，任务已完成）、`scripts/clear-synced-data.ts`（清空脚本，使用场景过于个性化）
+- `.gitignore` 加 `.dsh-vision-toolkit/`（DSH vision-toolkit 本地缓存）
 
 ## 0.2.0（2026-08-30）— 看板大升级：运动分组展示 + 详情浮层 + 全量同步
 
@@ -120,7 +167,7 @@
 - 训练计划缓存（同目标保留打卡 + 跨年不丢）
 - 训练计划历史/恢复（AI 误判覆盖可找回）
 - 周报/月报/季报/年报/自定义日期范围报告工具
-- 25 个 AI 工具（自然语言调用）
+- 20 个 AI 工具（9 个 Garmin 数据 + 11 个统计，自然语言调用）
 - DSH 上下文压缩启用（避免切换模型消耗过大 token）
 - 数据路径统一（`process.env.HOME/data`，开发/DSH 一致）
 

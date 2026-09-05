@@ -24,6 +24,8 @@ import type { DIToken, GarminCachedTokens, GarminMfaState } from './types.js'
 //  常量
 // ────────────────────────────────────────────────────────────
 
+import { logger } from '../logger.js'
+
 const IOS_SSO_CLIENT_ID = 'GCM_IOS_DARK'
 const IOS_LOGIN_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
@@ -442,16 +444,47 @@ export class GarminClient {
 
     const apiGet = async <T>(path: string): Promise<T> => {
       const url = `${this.api}${path}`
+      const t0 = Date.now()
+      logger.info('garmin-api', `→ GET ${url}`)
       const res = await this.fetchWithTimeout(url, {
         headers: authHeaders(),
       })
+      const elapsed = Date.now() - t0
       if (!res.ok) {
         const body = await res.text().catch(() => '')
+        logger.warn('garmin-api', `← ${res.status} ${url} (${elapsed}ms, body=${body.length}B)`)
         throw new GarminAuthError(
           `API ${path} 失败 status=${res.status} body=${body.slice(0, 200)}`,
         )
       }
-      return (await res.json()) as T
+      // 204 No Content = Garmin "当天没数据"（合法）→ 返回 null（调用方期望）
+      if (res.status === 204) {
+        logger.info('garmin-api', `← 204 ${url} (${elapsed}ms, body=0B, no-data)`)
+        return null as T
+      }
+      // 读 response body：拿到字节数 + JSON 解析（不打印 body 内容）
+      const rawText = await res.text()
+      const bodyBytes = rawText.length
+      // 2xx 但 body 为空（防御性，正常 200 不会这样）：返回 null
+      if (bodyBytes === 0) {
+        logger.info('garmin-api', `← ${res.status} ${url} (${elapsed}ms, body=0B, empty)`)
+        return null as T
+      }
+      let json: T
+      try {
+        json = JSON.parse(rawText) as T
+      } catch (e) {
+        logger.warn('garmin-api', `← ${res.status} ${url} (${elapsed}ms, body=${bodyBytes}B, JSON 解析失败: ${(e as Error).message})`)
+        throw e
+      }
+      // 打印摘要：响应字节数 + 顶层 key 数（不打印具体数据）
+      const summary = Array.isArray(json)
+        ? `array(${json.length})`
+        : (json && typeof json === 'object'
+            ? `object(keys=${Object.keys(json).length})`
+            : typeof json)
+      logger.info('garmin-api', `← 200 ${url} (${elapsed}ms, body=${bodyBytes}B, ${summary})`)
+      return json
     }
 
     return {
