@@ -1,6 +1,6 @@
 # 更新日志
 
-## 未发布 — dsh 0.1.7 API 适配重构
+## 0.2.3（2026-09-27）— dsh 0.1.7-rc.2 适配落地（修复插件加载失败）
 
 ### 🐛 修复（插件加载失败 → 看板/设置面板不可见）
 - **根因**：`lib/` 构建产物停留在旧 API——`lib/index.js` 顶部 `import { settingsNamespace } from '@deepseek-ai/dsh-settings'`。
