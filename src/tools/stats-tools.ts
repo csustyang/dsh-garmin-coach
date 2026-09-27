@@ -9,7 +9,8 @@
 import * as stats from '../stats.js'
 import type { GarminStoreFile } from '../storage.js'
 import { defineGarminTool } from './helpers.js'
-import type { JsonValue, ToolRunContext } from '@deepseek-ai/dsh-tools'
+import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 
 /** 把任意 Garmin JSON 响应统一包成 JsonValue（透传 unknown → JsonValue）*/
 function asJson<T>(p: Promise<T>): Promise<JsonValue> {

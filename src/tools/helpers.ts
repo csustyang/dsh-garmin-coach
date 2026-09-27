@@ -21,11 +21,11 @@
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {
-  JsonValue,
   ParameterSchemaSpec,
   ToolRunContext,
   ValueSchemaSpec,
 } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { withBoundary } from '../boundary.js'
 
 /** 通用 render：把任意 JSON 值转成单条 text block（人类可读）。*/

@@ -76,6 +76,20 @@
 - 已用「注入修复前行为」验证这 2 个测试确实会失败（非空测试），再还原确认通过
 - 测试总数 64 → 69（registers.test.ts 的 2 个 settings.register 旧契约同步更新为 SettingsForms 契约：导出 Config / ns=entry id / 不再调用 register）
 
+### 🔧 声明与工具链
+- **compatibility 声明**：
+  - peerDependencies 新增 `@deepseek-ai/dsh: ^0.1.7-rc.2`，并把 dsh-settings / dsh-tools 从 `^0.1.0-rc.8` 收紧到
+    `^0.1.7-rc.2`。注意：DSH 安装/启动的版本守卫实际消费的是 **peerDependencies 里 `@deepseek-ai/dsh` /
+    `@deepseek-ai/dsh-*` 的 semver range**（`evaluatePluginCompatibility` + dshmarket 的 peer preflight，
+    includePrerelease）；不满足时给出 `dsh plugin allow-version <pkg>@<ver> --dsh-version <v> --accept-risk` 逃生口。
+    `^0.1.7-rc.2` 边界实测：0.1.7-rc.1 ✗ / 0.1.7-rc.2 ✓ / 0.1.7 ✓ / 0.1.8-rc.1 ✓ / 0.2.0 ✗ / 0.1.6 ✗。
+  - 新增 `dsh.compatibility` 元数据（dsh / dshReleases / profiles，对齐 vision-toolkit 形状；宿主与市场当前不消费，
+    属自描述/展示字段）：`dsh: >=0.1.7-rc.2 <0.2.0`，`profiles: [web, headless]`。
+- **修正 JsonValue 导入**：`@deepseek-ai/dsh-tools@0.1.7-rc.2` 不再从包根 re-export `JsonValue`
+  （它自己在 `@deepseek-ai/dsh-util-values`；`ToolRunContext` 仍在 dsh-tools 根导出）。
+  `src/tools/{helpers,register,stats-tools}.ts` 拆分导入源，devDependencies 补
+  `@deepseek-ai/dsh-util-values@0.1.7-rc.2`（与宿主运行时同版，避免 registry 稳定版/预发布版类型漂移）。
+
 ### 📦 构建产物
 - `lib/tools/helpers.{js,d.ts}` / `lib/tools/register.{js,d.ts}` / `lib/tools/stats-tools.{js,d.ts}` / `lib/connect.{js,d.ts}` / `lib/settings-web.{js,d.ts}` / `lib/index.{js,d.ts}` 由 `npm run build` 重新生成
 - 新增 `lib/web-route.{js,d.ts}`

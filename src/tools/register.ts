@@ -9,7 +9,8 @@
  * 0.1.7 适配：execute 返回 JsonValue（dsh-tools 强类型推导）。
  */
 
-import type { JsonValue, ToolRunContext } from '@deepseek-ai/dsh-tools'
+import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { GarminQueries } from '../api/queries.js'
 import { defineGarminTool } from './helpers.js'
 

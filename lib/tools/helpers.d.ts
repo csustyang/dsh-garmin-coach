@@ -18,7 +18,8 @@
  * callers 自定义 outputSchema 时，execute 返回类型需自己保证与 schema 兼容。
  */
 import { defineTool } from '@deepseek-ai/dsh-tools';
-import type { JsonValue, ParameterSchemaSpec, ToolRunContext, ValueSchemaSpec } from '@deepseek-ai/dsh-tools';
+import type { ParameterSchemaSpec, ToolRunContext, ValueSchemaSpec } from '@deepseek-ai/dsh-tools';
+import type { JsonValue } from '@deepseek-ai/dsh-util-values';
 /**
  * 定义一个工具，满足 dsh-tools 0.1.7 defineTool 契约。
  *
