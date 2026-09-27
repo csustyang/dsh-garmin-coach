@@ -11,6 +11,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { logger } from './logger.js'
+import { installWebRoute } from './web-route.js'
 
 export interface GarminSettingsValue {
   // 安全：email/password 不持久化，不在此接口里
@@ -230,29 +231,5 @@ export function installGarminSettingsRoute(
   ctx: Context,
   handler: ReturnType<typeof makeGarminSettingsHandler>,
 ): void {
-  const anyCtx = ctx as unknown as {
-    inject?: (services: string[], cb: (sc: unknown) => void) => void
-  }
-  if (!anyCtx.inject) {
-    logger.warn('settings-web', 'ctx.inject 不可用，跳过 route')
-    return
-  }
-  anyCtx.inject(['webServer'], (webCtx) => {
-    const ws = (webCtx as { webServer?: { register: (o: unknown) => () => void } })
-      .webServer
-    if (!ws) {
-      logger.warn('settings-web', 'webServer 不可用，跳过 route')
-      return
-    }
-    const dispose = ws.register({
-      kind: 'exact',
-      path: '/garmin-settings',
-      handler,
-    })
-    ;(webCtx as { effect?: (fn: () => () => void, label?: string) => void }).effect?.(
-      () => dispose,
-      'dsh-garmin-coach: settings route',
-    )
-    logger.info('settings-web', '/garmin-settings route registered')
-  })
+  installWebRoute(ctx, '/garmin-settings', handler, 'dsh-garmin-coach: settings route')
 }

@@ -7,10 +7,11 @@
  * 契约来源：
  *   - @deepseek-ai/dsh-tools#defineTool (name/description/parameters/output/execute)
  *   - @deepseek-ai/dsh-commands#register (name/description/input/recordInput/handler)
- *   - DSH ctx.settings.register (ns/schema/options)
+ *   - 0.1.7 SettingsForms: 入口导出 Config（volatile 字段）即 schema；写入走 ctx.settings.update/replace(ns=entry id)
  */
 import assert from 'node:assert/strict'
-import { apply } from '../../src/index.js'
+import { apply, Config } from '../../src/index.js'
+import { GARMIN_SETTINGS_NS } from '../../src/settings-web.js'
 
 interface SettingsCall {
   ns: unknown
@@ -144,30 +145,31 @@ test('commands.register: input.hint 必须存在（DSH 官方约定）', () => {
 })
 
 // ─────────────────────────────────────────────
-// settings.register 契约
+// ─────────────────────────────────────────────
+// settings 契约（0.1.7 SettingsForms：schema = 入口导出的 Config，不再 register）
 // ─────────────────────────────────────────────
 
-test('settings.register: 命名空间必须是 "garmin-coach"', () => {
-  const calls = captured.settings.filter((s) => typeof s.ns === 'string')
-  assert.ok(calls.length > 0, 'settings.register 至少一次带 ns 参数')
-  for (const s of calls) {
-    assert.equal(
-      s.ns,
-      'garmin-coach',
-      `settings namespace 必须是 'garmin-coach'（保持与其他代码位一致）: got ${String(s.ns)}`,
-    )
-  }
+test('settings: 入口导出 Config（SettingsForms 设置卡片的数据源）', () => {
+  assert.ok(Config !== undefined, '入口必须导出 Config（0.1.7 SettingsForms 约定）')
+  // schemastery 的 z.object() 本体是函数（构造器）；编译后可能是 object 包装
+  assert.ok(
+    typeof Config === 'function' || (typeof Config === 'object' && Config !== null),
+    `Config 必须是 schemastery schema（function/object）: got ${typeof Config}`,
+  )
 })
 
-test('settings.register: schema 是 zod 对象（function / object 形式）', () => {
-  const calls = captured.settings.filter((s) => typeof s.ns === 'string')
-  assert.ok(calls.length > 0, '至少有 1 个带 ns 的 settings.register 调用')
-  for (const s of calls) {
-    // schemastery 的 z.object() 返回的是函数（构造器）；运行时会序列化
-    // 既可能是 typeof 'function'（schemastery 本体）也可能是 typeof 'object'（编译后包装）
-    assert.ok(
-      typeof s.schema === 'function' || (typeof s.schema === 'object' && s.schema !== null),
-      `settings schema 必须是 function/object: ns=${String(s.ns)}, got ${typeof s.schema}`,
-    )
-  }
+test('settings: 命名空间常量 GARMIN_SETTINGS_NS === "garmin-coach"（= loader entry id）', () => {
+  assert.equal(
+    GARMIN_SETTINGS_NS,
+    'garmin-coach',
+    'settings 读写 ns 必须与 cordis.patch.yml 的 entry id 一致',
+  )
+})
+
+test('settings: 0.1.7 下不再调用 settings.register（owner scope 已移除）', () => {
+  assert.equal(
+    captured.settings.length,
+    0,
+    `0.1.7 SettingsForms 设计下不应有 settings.register 调用（schema 就是导出的 Config；写入走 service.update/replace），got ${captured.settings.length}`,
+  )
 })

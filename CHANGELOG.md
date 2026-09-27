@@ -1,5 +1,85 @@
 # 更新日志
 
+## 未发布 — dsh 0.1.7 API 适配重构
+
+### 🐛 修复（插件加载失败 → 看板/设置面板不可见）
+- **根因**：`lib/` 构建产物停留在旧 API——`lib/index.js` 顶部 `import { settingsNamespace } from '@deepseek-ai/dsh-settings'`。
+  garmin-coach 是 profile 的 linked root，DSH 0.1.7-rc.2 的解析拦截会把其 bare import 路由到**宿主**的
+  dsh-settings@0.1.7-rc.2（该版本导出仅 `SettingsConflictError / SettingsForms / default / redactSecrets`，
+  **没有 `settingsNamespace`**）→ 模块求值抛 SyntaxError → loader entry 永远拿不到 fiber →
+  启动日志 `garmin-coach (dsh-garmin-coach): failed to import` → 插件未激活。
+- **修复**：完成 `src/index.ts` 半成品迁移（`apply(ctx, config)` + `readSettingsFromConfig(config)` 直读 volatile 引用，
+  删除 `scopeRef / tryRegisterSettings / readSettingsFromScope / INITIAL_SETTINGS` 残留）；
+  schemastery 导入从 npm `schemastery@3.18.0`（无 `.volatile()`）切换为 DSH fork `@deepseek-ai/schemastery@^3.18.4`
+  （peerDependencies 同步替换，与 dsh-email 做法一致）；`npm run build` 重建 `lib/`。
+- **验证**：重启后启动日志不再有 garmin 失败项；设置面板出现 Garmin Coach 卡片；侧栏出现入口；
+  `/garmin-settings` 返回 `{ ok: true, status: 'connected', ... }`；`npm test` 69/69 通过。
+
+### 🐛 修复（UI 对齐）
+- **侧栏入口与任务看板/技能中心对齐**：`lib/client.js` 侧栏入口 `[data-dsh-garmin-entry]` 原先抄的是
+  skill-explorer 0.3.16 的紧凑样式（`padding:0 10px` + 24px 图标 + 13px 字号 + 8px 圆角，且漏了 `margin:0 2px`），
+  与任务看板的官方侧栏入口样式（`padding:7px 8px` + 16px 图标 + 14px/22px 字号 + 12px 圆角 + `margin:0 2px`）
+  不一致，导致三个入口的图标/文字横向错位（图标 x=22/24/22，文字 x=46/56/54，按钮 x=12/14/14）。
+  现统一对齐官方样式；折叠态圆角同步 50% → 12px。浏览器实测三入口 x=14、w=252、图标 x=22、文字 x=46 完全一致。
+
+
+### 🐛 修复（复核阶段发现）
+- **settings 写入改用「合并」而非「整体替换」**：前端 `lib/client.js` 的表单保存（doSave）与连接回写（safeConnected）只提交
+  `isCn / status / displayName / lastSyncAt / syncDaysBack` **5 个字段，不含 `fullSyncFrom`**。
+  而 `SettingsProvider.replace()` 是**整体替换**语义（未出现的键回落 base/schema 默认值），
+  于是**每次保存或连接成功都会把用户手工配置的 `fullSyncFrom`（全量同步起点）抹成 `''`**。
+  现改用 `update(ns, patch, expectedRevision)`（`mergeLayers` 语义）：显式提交的字段照常覆盖
+  （前端会显式发 `''`/`0`），未提交的字段保持不动 —— 这也是官方文档对「持有可能过期视图的 wire 调用方」推荐的写入路径。
+  *该 bug 在 0.2.2 及更早版本即存在（当时同样走 replace）。*
+- **恢复 `expectedRevision` 并发冲突检测**：重构中一度改成 `scope.replace(section)`（owner scope 不暴露 revision），
+  导致前端回传的 `expectedRevision` 被丢弃 —— 多标签页并发编辑会**静默互相覆盖**。
+  现在统一由 `writeGarminSettings()` 透传 revision，陈旧 revision 会被 `SettingsConflictError` 拒绝。
+- **新增统一写入函数 `writeGarminSettings(ctx, patch, expectedRevision)`**：
+  回退链 `service.update`（合并 + 冲突检测）→ `service.replace`（整体替换兜底），
+  4 个写入点（表单保存 / 连接回写 / 手动同步 lastSyncAt / 全量同步 lastSyncAt）全部收敛到它。
+  （0.1.7 SettingsForms 设计下无 owner scope，ns 统一为 `GARMIN_SETTINGS_NS` = loader entry id `'garmin-coach'`）
+
+### 🔧 重构（消除兼容问题）
+- **`src/tools/helpers.ts` — 完全重写**：
+  - render 函数签名改用 dsh-llm 的 `ContentBlock[]` 类型（替代内联 `{ type: 'text'; text: string }`）
+  - execute 返回类型从 `unknown` 收紧为 `JsonValue`（dsh-tools 0.1.7 强类型推导）
+  - 移除 `as never` 强转 —— 通过 const 修饰符推断 + 双分支 defineTool 调用保留 schema 字面量
+    （schema 若先赋给 `ValueSchemaSpec` 类型变量会被联合扩展，`InferValue` 推成 `never`）
+  - withBoundary 包装在两侧分支都生效（异常 → `{ error: true, message }` fallback）
+- **`src/tools/register.ts` / `src/tools/stats-tools.ts` — execute 全部加 JsonValue 包装**：
+  - 用 `asJson<T>(p: Promise<T>): Promise<JsonValue>` helper 统一包装 Garmin JSON 响应
+  - 同步 `args: Record<string, unknown>, exec: ToolRunContext` 签名（dsh-tools 0.1.7 要求显式 ToolRunContext）
+- **`src/index.ts` — settings 接入（最终形态：0.1.7 SettingsForms，导出 `Config` 即 schema）**：
+  - 删除从未使用的 `installSettingsSection` 导入，以及从未调用的 `installConnectRoute` / `makeConnectHandler` 死导入
+    （前端只访问 `/garmin-settings`，`/garmin-connect` 从未注册也从未被调用）
+  - 读取改用 `ctx.settings.register()` 返回的 owner scope 的 `scope.get()`（O(1)），
+    不再每次遍历 `describe()`（后者会 structuredClone 所有命名空间的 user 段）
+  - `isCn` 读取时机修正：先 `register` 再 `scope.get()`，因此**首次启动即可正确读到持久化的区域设置**。
+    旧代码在 `register` 之前调用 `describe()`，而 `SettingsProvider.describe()` 只遍历 `this.registrations`
+    （已注册的命名空间）→ 首次启动时该命名空间尚未注册，必然返回空数组 → `isCn` 回落默认 `true`，
+    导致**国际区账号（`isCn: false`）被当成中国区**连接 garmin.cn
+  - `PluginContext` 类型契约更新到 0.1.7 ToolRuntime / SettingsProvider 接口
+- **`src/web-route.ts` — 新增统一 webServer route 注册 helper**：
+  - 取代 settings-web.ts / connect.ts 中重复的 `ctx.inject(['webServer'], ...)` + dispose + effect 模板
+  - 暴露最小 `WebRoute { kind, path, handler }` 契约
+  - 自动添加 effect 清理（dispose 自动随 fiber 卸载）
+- **`src/settings-web.ts` / `src/connect.ts` — 改用 installWebRoute helper**：
+  - 删除内联 `ctx.inject` 回调样板
+  - 类型契约从 `Context | unknown` 统一为 `Context`
+
+### ✅ 测试
+- 新增 `tests/contracts/settings-write.test.ts`（4 个契约测试）守护上述写入语义：
+  1. save 必须透传 `expectedRevision`（并发冲突检测）
+  2. save 必须走合并 `update`、**不得**用整体替换 `replace`（防 `fullSyncFrom` 被抹）
+  3. email/password 必须剥离、不得落盘
+  4. GET 必须返回 `revision` + `writable`（前端并发检测依赖）
+- 已用「注入修复前行为」验证这 2 个测试确实会失败（非空测试），再还原确认通过
+- 测试总数 64 → 69（registers.test.ts 的 2 个 settings.register 旧契约同步更新为 SettingsForms 契约：导出 Config / ns=entry id / 不再调用 register）
+
+### 📦 构建产物
+- `lib/tools/helpers.{js,d.ts}` / `lib/tools/register.{js,d.ts}` / `lib/tools/stats-tools.{js,d.ts}` / `lib/connect.{js,d.ts}` / `lib/settings-web.{js,d.ts}` / `lib/index.{js,d.ts}` 由 `npm run build` 重新生成
+- 新增 `lib/web-route.{js,d.ts}`
+
 ## 0.2.2（2026-09-05）— sleep 端点合并 + 写锁并发安全 + 未连接短路
 
 ### 🐛 修复

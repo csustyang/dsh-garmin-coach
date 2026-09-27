@@ -13,8 +13,11 @@
  * 安全：
  *   - 仅 localhost
  *   - 密码只在内存用一次，不落盘（token 通过 credentials 缓存）
+ *
+ * 0.1.7 适配：通过 web-route helper 注册到 dsh-host-webserver seam。
  */
 /// <reference types="node" />
+import type { Context } from '@deepseek-ai/cordis';
 import { GarminClient } from './auth/client.js';
 import type { TokenStore } from './auth/client.js';
 export interface ConnectRequestBody {
@@ -38,5 +41,9 @@ export declare function makeConnectHandler(getClient: () => GarminClient | null,
     displayName?: string;
     email?: string;
 }) => Promise<void>, store?: TokenStore): (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => Promise<void>;
-/** 在 ctx.webServer 上注册 /garmin-connect route */
-export declare function installConnectRoute(ctx: unknown, handler: ReturnType<typeof makeConnectHandler>): void;
+/**
+ * 在 dsh-host-webserver 上注册 /garmin-connect route。
+ *
+ * 0.1.7：通过统一的 web-route helper 注入（dispose + effect 自动化）。
+ */
+export declare function installConnectRoute(ctx: Context, handler: ReturnType<typeof makeConnectHandler>): void;

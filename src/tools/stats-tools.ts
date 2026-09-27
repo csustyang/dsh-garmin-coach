@@ -9,6 +9,12 @@
 import * as stats from '../stats.js'
 import type { GarminStoreFile } from '../storage.js'
 import { defineGarminTool } from './helpers.js'
+import type { JsonValue, ToolRunContext } from '@deepseek-ai/dsh-tools'
+
+/** 把任意 Garmin JSON 响应统一包成 JsonValue（透传 unknown → JsonValue）*/
+function asJson<T>(p: Promise<T>): Promise<JsonValue> {
+  return p as Promise<JsonValue>
+}
 
 export interface StatsToolContext {
   store: GarminStoreFile
@@ -32,7 +38,7 @@ export function defineStatsTools(
         days: { type: 'integer', description: '拉取最近多少天（建议 1-30，默认 30）' },
         sport: { type: 'string', description: '只同步指定运动类型，如 running / cycling / swimming / hiking' },
       },
-      execute: async (args) => {
+      execute: async (args: Record<string, unknown>, _exec: ToolRunContext) => {
         const { days, sport } = args as { days?: number; sport?: string }
         const { syncGarmin } = await import('../sync.js')
         const { GarminClient } = await import('../auth/client.js')
@@ -40,12 +46,14 @@ export function defineStatsTools(
         const { makeQueries } = await import('../api/queries.js')
         const client = new GarminClient({ store: FileTokenStore.default() })
         const queries = makeQueries(client)
-        return syncGarmin({
-          days: days ?? 30,
-          sportFilter: sport ? [sport] : undefined,
-          store,
-          queries,
-        })
+        return asJson(
+          syncGarmin({
+            days: days ?? 30,
+            sportFilter: sport ? [sport] : undefined,
+            store,
+            queries,
+          }),
+        )
       },
     }),
     defineGarminTool({
@@ -56,9 +64,9 @@ export function defineStatsTools(
         sport: { type: 'string', description: '运动类型，如 running / cycling' },
         limit: { type: 'integer', description: '最多返回多少条，默认 10' },
       },
-      execute: async (args) => {
+      execute: async (args: Record<string, unknown>, _exec: ToolRunContext) => {
         const { sport, limit } = args as { sport?: string; limit?: number }
-        return stats.recentActivities(store, { sport, limit })
+        return asJson(stats.recentActivities(store, { sport, limit }))
       },
     }),
     defineGarminTool({
@@ -70,7 +78,7 @@ export function defineStatsTools(
         toleranceMeters: { type: 'integer', description: '距离容差（米），默认目标距离的 10%' },
         sport: { type: 'string', description: '运动类型，默认 running' },
       },
-      execute: async (args) => {
+      execute: async (args: Record<string, unknown>, _exec: ToolRunContext) => {
         const { distanceMeters, toleranceMeters, sport } = args as {
           distanceMeters: number
           toleranceMeters?: number
@@ -85,7 +93,7 @@ export function defineStatsTools(
           return {
             error: true,
             message: `没有找到约 ${distanceMeters / 1000} 公里的${sport ?? '跑步'}记录`,
-          }
+          } as JsonValue
         }
         return {
           activityId: best.activityId,
@@ -95,7 +103,7 @@ export function defineStatsTools(
           avgHr: best.avgHr,
           avgCadence: best.avgCadence,
           trainingEffect: best.trainingEffect,
-        }
+        } as JsonValue
       },
     }),
     defineGarminTool({
@@ -115,14 +123,16 @@ export function defineStatsTools(
         from: { type: 'string', description: '自定义起期 YYYY-MM-DD（period=custom 时用）' },
         to: { type: 'string', description: '自定义止期 YYYY-MM-DD（缺省=今天）' },
       },
-      execute: async (args) => {
+      execute: async (args: Record<string, unknown>, _exec: ToolRunContext) => {
         const { period, from, to } = args as { period?: string; from?: string; to?: string }
         const { reportStats } = await import('../stats.js')
-        return reportStats(store, {
-          period: (period as 'week' | 'month' | 'quarter' | 'year' | 'custom') || 'week',
-          from,
-          to,
-        })
+        return asJson(
+          reportStats(store, {
+            period: (period as 'week' | 'month' | 'quarter' | 'year' | 'custom') || 'week',
+            from,
+            to,
+          }),
+        )
       },
     }),
     defineGarminTool({
@@ -139,7 +149,7 @@ export function defineStatsTools(
         daysPerWeek: { type: 'integer', description: '每周训练天数，默认 3' },
         force: { type: 'boolean', description: 'true=强制重新生成（忽略缓存），缺省=优先用缓存' },
       },
-      execute: async (args) => {
+      execute: async (args: Record<string, unknown>, _exec: ToolRunContext) => {
         const { goal, weeks, daysPerWeek, force } = args as { goal?: string; weeks?: number; daysPerWeek?: number; force?: boolean }
         const { trainingPlanData } = await import('../stats.js')
         const data = await trainingPlanData(store)
@@ -165,7 +175,7 @@ export function defineStatsTools(
               tasks: cached.tasks || [],
               progress: await store.planProgress(),
               tips: cached.tips,
-            }
+            } as unknown as JsonValue
           }
           if (sameGoal) {
             // 目标相同但数据变化（如同步了新数据）→ 保留旧计划 + 打卡
@@ -182,7 +192,7 @@ export function defineStatsTools(
               progress: await store.planProgress(),
               tips: cached.tips,
               message: '数据有更新（同步了新训练），当前计划保留。如需重新生成请输入"重新生成训练计划"。',
-            }
+            } as unknown as JsonValue
           }
         }
 
@@ -198,7 +208,7 @@ export function defineStatsTools(
           fingerprint: data.fingerprint,
           // 提示 AI：生成计划后调 garmin_save_training_plan 保存
           saveInstruction: '生成完整训练计划后，调用 garmin_save_training_plan 保存（传 goal/weeks/daysPerWeek/plan/tips/fingerprint）',
-        }
+        } as JsonValue
       },
     }),
     defineGarminTool({
@@ -231,13 +241,13 @@ export function defineStatsTools(
         daysPerWeek: { type: 'integer', description: '每周训练天数' },
         fingerprint: { type: 'string', description: '数据指纹（来自 garmin_training_plan 返回）' },
       },
-      execute: async (args) => {
+      execute: async (args: Record<string, unknown>, _exec: ToolRunContext) => {
         const { goal, plan, tasks, tips, weeks, daysPerWeek, fingerprint } = args as {
           goal?: string; plan?: string; tasks?: Array<{ id?: string; week?: number; day?: string; type?: string; detail?: string }>;
           tips?: string[]; weeks?: number; daysPerWeek?: number; fingerprint?: string
         }
         if (!goal || !plan) {
-          return { ok: false, message: '需要 goal 和 plan' }
+          return { ok: false, message: '需要 goal 和 plan' } as JsonValue
         }
         // 规范化 tasks：补 id/done
         const normalizedTasks = (tasks || []).map(function (t, idx) {
@@ -260,7 +270,7 @@ export function defineStatsTools(
           tips: tips || [],
           tasks: normalizedTasks,
         })
-        return { ok: true, message: '训练计划已保存（含 ' + normalizedTasks.length + ' 个训练任务，可打卡）' }
+        return { ok: true, message: '训练计划已保存（含 ' + normalizedTasks.length + ' 个训练任务，可打卡）' } as JsonValue
       },
     }),
     defineGarminTool({
@@ -271,17 +281,17 @@ export function defineStatsTools(
       parameters: {
         taskId: { type: 'string', required: true, description: '训练任务 id' },
       },
-      execute: async (args) => {
+      execute: async (args: Record<string, unknown>, _exec: ToolRunContext) => {
         const { taskId } = args as { taskId?: string }
-        if (!taskId) return { ok: false, message: '需要 taskId' }
-        return store.toggleTask(taskId)
+        if (!taskId) return { ok: false, message: '需要 taskId' } as JsonValue
+        return asJson(store.toggleTask(taskId))
       },
     }),
     defineGarminTool({
       name: 'garmin_plan_progress',
       description: '查看当前训练计划的打卡进度（已完成/总任务数）。',
       parameters: {},
-      execute: async () => {
+      execute: async (_args: Record<string, unknown>, _exec: ToolRunContext) => {
         const progress = await store.planProgress()
         const plan = await store.loadTrainingPlan()
         return {
@@ -289,7 +299,7 @@ export function defineStatsTools(
           progress,
           goal: plan ? plan.goal : null,
           hasPlan: !!plan,
-        }
+        } as JsonValue
       },
     }),
     defineGarminTool({
@@ -300,10 +310,10 @@ export function defineStatsTools(
       parameters: {
         file: { type: 'string', required: true, description: '历史文件名（来自 garmin_plan_history）' },
       },
-      execute: async (args) => {
+      execute: async (args: Record<string, unknown>, _exec: ToolRunContext) => {
         const { file } = args as { file?: string }
-        if (!file) return { ok: false, message: '需要 file（历史文件名）' }
-        return store.restorePlan(file)
+        if (!file) return { ok: false, message: '需要 file（历史文件名）' } as JsonValue
+        return asJson(store.restorePlan(file))
       },
     }),
     defineGarminTool({
@@ -318,11 +328,11 @@ export function defineStatsTools(
         taskId: { type: 'string', description: '关联的训练任务 id（可选）' },
         taskLabel: { type: 'string', description: '任务描述（可选，如"有氧慢跑 6km"）' },
       },
-      execute: async (args) => {
+      execute: async (args: Record<string, unknown>, _exec: ToolRunContext) => {
         const { feeling, date, rating, taskId, taskLabel } = args as {
           feeling?: string; date?: string; rating?: number; taskId?: string; taskLabel?: string
         }
-        if (!feeling) return { ok: false, message: '需要 feeling（训练感受）' }
+        if (!feeling) return { ok: false, message: '需要 feeling（训练感受）' } as JsonValue
         const now = new Date()
         const entry = {
           id: 'diary-' + Date.now(),
@@ -334,7 +344,7 @@ export function defineStatsTools(
           createdAt: now.toISOString(),
         }
         await store.addDiaryEntry(entry)
-        return { ok: true, message: '训练日记已记录', entry: entry }
+        return { ok: true, message: '训练日记已记录', entry: entry } as JsonValue
       },
     }),
     defineGarminTool({
@@ -345,7 +355,7 @@ export function defineStatsTools(
         days: { type: 'integer', description: '最近 N 天（缺省全部）' },
         limit: { type: 'integer', description: '最多返回条数，默认 20' },
       },
-      execute: async (args) => {
+      execute: async (args: Record<string, unknown>, _exec: ToolRunContext) => {
         const { days, limit } = args as { days?: number; limit?: number }
         const entries = await store.loadDiary()
         let result = entries
@@ -355,7 +365,7 @@ export function defineStatsTools(
             return new Date(e.date + 'T00:00:00').getTime() >= cutoff
           })
         }
-        return { ok: true, entries: result.slice(0, limit ?? 20) }
+        return { ok: true, entries: result.slice(0, limit ?? 20) } as unknown as JsonValue
       },
     }),
   ]

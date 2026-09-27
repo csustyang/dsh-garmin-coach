@@ -13,11 +13,15 @@
  * 安全：
  *   - 仅 localhost
  *   - 密码只在内存用一次，不落盘（token 通过 credentials 缓存）
+ *
+ * 0.1.7 适配：通过 web-route helper 注册到 dsh-host-webserver seam。
  */
 
+import type { Context } from '@deepseek-ai/cordis'
 import { GarminClient } from './auth/client.js'
 import type { TokenStore } from './auth/client.js'
 import { logger } from './logger.js'
+import { installWebRoute } from './web-route.js'
 
 export interface ConnectRequestBody {
   action?: 'connect' | 'mfa'
@@ -161,34 +165,14 @@ export function makeConnectHandler(
   }
 }
 
-/** 在 ctx.webServer 上注册 /garmin-connect route */
+/**
+ * 在 dsh-host-webserver 上注册 /garmin-connect route。
+ *
+ * 0.1.7：通过统一的 web-route helper 注入（dispose + effect 自动化）。
+ */
 export function installConnectRoute(
-  ctx: unknown,
+  ctx: Context,
   handler: ReturnType<typeof makeConnectHandler>,
 ): void {
-  const anyCtx = ctx as {
-    inject?: (services: string[], cb: (sc: unknown) => void) => void
-  }
-  if (!anyCtx.inject) {
-    logger.warn('connect', 'ctx.inject 不可用，跳过 route 注册')
-    return
-  }
-  anyCtx.inject(['webServer'], (webCtx) => {
-    const ws = (webCtx as { webServer?: { register: (o: unknown) => () => void } }).webServer
-    if (!ws) {
-      logger.warn('connect', 'webServer 不可用，跳过 route 注册')
-      return
-    }
-    const dispose = ws.register({
-      kind: 'exact',
-      path: '/garmin-connect',
-      handler,
-    })
-    // 卸载时清理
-    ;(webCtx as { effect?: (fn: () => () => void, label?: string) => void }).effect?.(
-      () => dispose,
-      'dsh-garmin-coach: connect route',
-    )
-    logger.info('connect', '/garmin-connect route registered')
-  })
+  installWebRoute(ctx, '/garmin-connect', handler, 'dsh-garmin-coach: connect route')
 }
